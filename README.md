@@ -2,9 +2,15 @@
 
 This repository contains files that can be used to reproduce the analysis presented in the paper entitled **"The Impact of Artificial Intelligence on Multinational Enterprises' Innovative Activities"**. It includes an R code that can be used to produce the analysis (named *"Effects_AI_adoption"*), one Rmarkdown file (named *"Effects_AI_adoption_markdown"*), which is used to generate an html file (*Effects_AI_adoption_markdown*) that allows visualizing the reproduction of the main parts of the code, and twomain folders, named "Input_code" and *"Output_code"*.
 
-The folder named **"Input_code"** is used as input to reproduce all of the estimations presented in the paper. This folder contains three files:
+The folder named **"Input_code"** is used as input to reproduce all of the estimations presented in the paper. The files contained in this folder look like this:
+![image](https://github.com/user-attachments/assets/2f2e0fad-b9dc-4b45-ab11-7b680308e5f9)
+
+In more detail, the content of each of these three files is:
+
   -Data_all_years_all_MNEs.csv → This file contains panel data that is used to create the descriptive statistics presented in the paper. This includes data on more than 26,000 MNEs for the variables considered.
+  
   -Matched_companies.csv → This file contains panel data on the more than 1,000 MNEs that were matched to counterparts from with same or similar "Average number of patents owned in the 5 years before treatment", "Number of patents in the year of treatment",   "Firm age", Industry (NACE 4-digit level), and Size. The matching allows that untreated companies are matched more than 1 time to treatment companies, if they are the most similar ones to these from the available companies.
+  
   -RCA_All_Years_Simplified.csv → This file contains the binary specializations of all matched companies in all of the possible 4-digit IPC codes. It is used to calculate variables linked to number of specializations.
 
 Besides these files, a subfolder named *"Big_files_ignore"* is also contained in this folder, but set to be ignored. This hidden folder contains data about all patents and companies linked to the MNE dataset. The folder is hidden due to Orbis intellectual property rights. These files are used in the first part of the code, entitled *"Measuring technological distance"*. If you want to reproduce the code but don't have access to these files, please jump this first part in the code and start from the section *"Measuring effects"*
