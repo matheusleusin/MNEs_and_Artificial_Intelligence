@@ -19,10 +19,12 @@ Besides these files, a subfolder named *"Big_files_ignore"* is also contained in
 All files created through executing the code are saved in **Output_code**. This folder has two subfolders, one with Figures and one with Data. 
 
 The *"Figures"* folder should look like this after the reproduction of the code:
+
 ![image](https://github.com/user-attachments/assets/31561c8e-ab31-4ae4-beff-047670b88623)
 
 
 The *"Data"* folder should look like this after the reproduction of the code: 
+
 ![image](https://github.com/user-attachments/assets/f363b4e5-2d4b-443e-aed9-81b5c3c662d1)
 
 Particularly, the 5 files starting with "Descriptive_statistics" in the name are created in the third section of the code (*Descriptive statistics and correlations*). The remaining 4 files are:
