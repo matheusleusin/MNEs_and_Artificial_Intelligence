@@ -2,6 +2,9 @@
 
 This repository contains files that can be used to reproduce the analysis presented in the paper entitled **"Relate to Innovate: The Impact of Artificial Intelligence on Multinational Enterprises’ Innovative Activities"**. It includes an R code that can be used to produce the analysis (named *"Effects_AI_adoption"*), one Rmarkdown file (named *"Effects_AI_adoption_markdown"*), which is used to generate an html file (*Effects_AI_adoption_markdown*) that allows visualizing the reproduction of the main parts of the code, and twomain folders, named "Input_code" and *"Output_code"*.
 
+test https://github.com/matheusleusin/MNEs_and_Artificial_Intelligence/blob/main/Effects_AI_adoption_markdown.html
+
+
 The folder named **"Input_code"** is used as input to reproduce all of the estimations presented in the paper. The files contained in this folder look like this:
 
 ![image](https://github.com/user-attachments/assets/2f2e0fad-b9dc-4b45-ab11-7b680308e5f9)
