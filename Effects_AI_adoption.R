@@ -192,7 +192,7 @@ write.csv2(AverageDistance, file = "Output_code/Data/Distance_NACE_sectors_to_AI
 ###2.1.1.Non-standard - Relatedness and number of patents regardless of sector  ----
 rm(list=ls())
 DataLong_Subs_sim <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec=",") #
-
+length(unique(DataLong_Subs_sim$Company))
 #1.1.1.Simple Aggregation Relatedness
 example_attgt <- att_gt(yname = "Relatedness_Cos2", tname = "CurrentYear", idname = "id",
                         gname = "first.treat", xformla = ~1, data = DataLong_Subs_sim, alp=.01
