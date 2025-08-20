@@ -42897,4 +42897,76 @@ results_df$mode <- "non_standard"
 
 write.xlsx(results_df, file = "Output_code/Data/Results_Effects_non_stand_granted_2.xlsx", rowNames = F)
 
+#20.New Figure 3------
+rm(list=ls())
+options(scipen=999)
+# 1) Read and tidy
+# Ensure your file path is correct
+raw <- read_excel("Input_code/Table 3.xlsx")
+
+variable_order <- c(
+  "Relatedness",
+  "Innovative Performance",
+  "Number of specializations",
+  #"Number of unique IPC Sections used",
+  #"Number of unique IPC Subclasses used",
+  "Sections",
+  "Subclasses",
+  "Herfindahl index",
+  "Shannon entropy index",
+  "No. of spec. in the 5 techn. most related to AI")
+unique(raw$Variable)
+df_long <- raw %>%
+  tidyr::fill(Variable) %>%
+  pivot_longer(cols = -c(Variable, Q),
+               names_to = "Group", values_to = "Value") %>%
+  mutate(
+    est_chr = str_extract(Value, "(?<!\\()[−-]?\\d+(?:,\\d+)?"),
+    sd_chr  = str_extract(Value, "(?<=\\()[^)]+(?=\\))"),
+    Estimate = as.numeric(str_replace(est_chr, ",", ".")),
+    SD       = as.numeric(str_replace(sd_chr,  ",", ".")),
+    Group = factor(Group,
+                   levels = c("None granted","Granted 1+","Granted 2+","Granted 3+")),
+    Q = factor(Q, levels = c("Q1", "IQR", "Q4")),
+    # CHANGE: Convert Variable to a factor using your specified order
+    Variable = factor(Variable, levels = variable_order) #factor(Variable, levels = variable_order)
+  ) %>%
+  # This filter is important to remove any rows that don't match the new factor levels
+  filter(!is.na(Variable), !is.na(Estimate))
+
+length(unique(raw$Variable))
+length(unique(df_long$Variable))
+
+df_long$Variable <- fct_recode(df_long$Variable,
+                               "Number of unique IPC Subclasses used" = "Subclasses")
+df_long$Variable <- fct_recode(df_long$Variable,
+                               "Number of unique IPC Sections used" = "Sections")
+
+#df_long$Variable <- factor(df_long$Variable, levels = variable_order)
+length(unique(df_long$Variable))
+
+# 3) Plot with variables in the specified order
+ggplot(df_long, aes(x = Group, y = Estimate, fill = Group)) +
+  geom_col(width = 0.7) +
+  geom_errorbar(aes(ymin = Estimate - SD, ymax = Estimate + SD), width = 0.2) +
+  facet_grid(rows = vars(Variable), cols = vars(Q), scales = "free_y") +
+  labs(title = "Effects by Grant Group and Quantile",
+       y = "Effect (estimate ± SD)", x = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        strip.text.y = element_text(angle = 0))
+
+jpeg("Output_code/Figures/Fig3_Table3.jpg", width = 10, height = 8, units = 'in', res = 400)
+ggplot(df_long, aes(x = Group, y = Estimate, fill = Group)) +
+  geom_col(width = 0.7) +
+  geom_errorbar(aes(ymin = Estimate - SD, ymax = Estimate + SD), width = 0.2) +
+  facet_grid(rows = vars(Variable), cols = vars(Q), scales = "free_y") +
+  labs(title = "Effects by grant group and quantile",
+       y = "Effect (estimate ± SD)", x = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        strip.text.y = element_text(angle = 0))
+dev.off()
 #end-----
