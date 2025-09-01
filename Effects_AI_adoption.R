@@ -401,108 +401,21 @@ summary(model_moderation) #treat:post_treatment 0.01644, treat:post_treatment:Re
 
 ##2.2. Measuring effects across sectors -----
 rm(list=ls())
-RCA_All_Years <-read.csv("Input_code/RCA_All_Years_Simplified.csv", sep = ";", header = TRUE, dec=",") 
-
-mat_tech_rel <-read.csv2("Output_code/Data/Matrix_relatedness_technologies_to_AI.csv")#file we created before measuring the relatedness of AI to other technologies
-mat_tech_rel <- mat_tech_rel[,c("X", "Artificial_Intelligence")] #select the AI and the other technologies columns
-mat_tech_rel <- mat_tech_rel[mat_tech_rel$Artificial_Intelligence >0,] #from 646 to 515 with relatedness above 0
-#let's pick the 5 codes with higher relatedness to AI:
-AI_codes <- mat_tech_rel[mat_tech_rel$Artificial_Intelligence >.06,1] #5 codes
 
 DataLong_Subs_sim <-read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec=",")
 length(unique(DataLong_Subs_sim$id)) #2514 ids 
-
-RCA_All_Years$AI_code <- ifelse(RCA_All_Years$Subclass %in% AI_codes, "AI_code", "Other_codes")
-
-RCA_All_Years %<>% group_by(id,CurrentYear, AI_code) %>% 
-  mutate(AIcodes = sum(RCA)) %>% 
-  ungroup()
-
-RCA_All_Years_treat_AI <- RCA_All_Years[RCA_All_Years$AI_code == "AI_code",]
-RCA_All_Years_treat_AI <- distinct_at(RCA_All_Years_treat_AI, vars(id,CurrentYear), .keep_all = T)
-RCA_All_Years_treat_AI <- RCA_All_Years_treat_AI[,c("id", "CurrentYear", "AIcodes")]
-
-DataLong_Subs_sim <- left_join(DataLong_Subs_sim, RCA_All_Years_treat_AI, by = c("id", "CurrentYear"))
-
-table(is.na(DataLong_Subs_sim$AIcodes)) #13607 F, 21589   T
-#Replace NAs by 0:
-DataLong_Subs_sim$AIcodes[is.na(DataLong_Subs_sim$AIcodes)] <- 0
-table(is.na(DataLong_Subs_sim$AIcodes)) #35196 F
-
-#insert granted information
-Patent_data <- read.csv("Input_code/Big_files_ignore/Additional_data_patents/Resulting_data_patent_info.csv", header = TRUE) #
-#remove useless variables 
-##remember to exclude them later-----
-Patent_data <- subset(Patent_data, select = -c(n_pubtype_p, n_pubtype_d, n_pubtype_u, avg_backward_citations_ai,
-                                               avg_forward_citations_ai, avg_claims_ai, avg_number_of_family_members_ai,
-                                               avg_time_filing_to_publication_ai, avg_time_filing_to_grant_ai) )
-
-DataLong_Subs_sim<- left_join(DataLong_Subs_sim,Patent_data, by=c("Company", "CurrentYear"))
-
-DataLong_Subs_sim$Rate_granted <- DataLong_Subs_sim$n_granted_yes/(DataLong_Subs_sim$n_granted_na+DataLong_Subs_sim$n_granted_yes) 
-DataLong_Subs_sim$Rate_granted_NoNAI <- DataLong_Subs_sim$n_granted_yes_nonai/(DataLong_Subs_sim$n_granted_na_nonai+DataLong_Subs_sim$n_granted_yes_nonai) 
-
-##add 2025 R&D data 
-#add information about patents developed by subsidiaries and other data (R&D, turnover)
-setwd("C:/Users/mathe/OneDrive/Documentos/R/Database")
-FinalDataset <- read.csv("files_created_code2/FinalDataset_allYears_FullGUOs.csv", sep = ";", header = TRUE, dec = ",")
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-FinalDataset <- FinalDataset[,c("Company", "CurrentYear","No_subs_extended", "NoPatentsYearALLSubs", "No_AI_PatentsYearALLSubs", 
-                                "No_employees_Year", "Turnover_Year", "RandD_Year", "NoPatentsYearGUOalone", "No_new_PatentsYearGUOalone")]
-DataLong_Subs_sim <- left_join(DataLong_Subs_sim, FinalDataset, by = c("Company", "CurrentYear"))
+Extra_data <-read.csv("Input_code/Matched_companies_extra_data.csv")
+length(unique(Extra_data$id)) #2514 ids 
+DataLong_Subs_sim <- left_join(DataLong_Subs_sim, Extra_data, by = c("id", "CurrentYear"))
+rm(Extra_data)
 
-#try to compensate for missing data from orbis:
-Additional_data<-read_excel("Input_code/Big_files_ignore/NewData_03_2025.xlsx", sheet = "Results", na = "n.a.")
-
-#clean names fix names change names improve names
-Additional_data <- Additional_data[,c(-1)] %>%  clean_names()
-#convert data into numeric
-Additional_data <- Additional_data %>%
-  mutate(across(-c(1, 2), ~ as.numeric(.)))
-#Additional_data$price_book_value_ratio_average_high_low_2010
-sample_data_long <- Additional_data %>%
-  pivot_longer(
-    cols = matches("^(number_of_publications_per_year_|operating_revenue_turnover_th_usd_|number_of_employees_|research_development_expenses_th_usd_|price_book_value_ratio_average_high_low_|market_capitalisation_shareholders_funds_)\\d+$"),
-    names_to = c("Variable", "CurrentYear"),
-    names_pattern = "(number_of_publications_per_year_|operating_revenue_turnover_th_usd_|number_of_employees_|research_development_expenses_th_usd_|price_book_value_ratio_average_high_low_|market_capitalisation_shareholders_funds_)(\\d+)",
-    values_to = "Value"  ) %>%
-  mutate(CurrentYear = as.integer(CurrentYear))
-
-sample_data_wide <- sample_data_long %>%
-  pivot_wider(names_from  = "Variable",
-              values_from = "Value")
-#new variables:
-table(is.na(sample_data_wide$operating_revenue_turnover_th_usd_)) #21183  f, 14652  T
-table(is.na(sample_data_wide$number_of_publications_per_year_)) #13337  F, 22498  T 
-table(is.na(sample_data_wide$number_of_employees_)) #17630  F, 18205  T 
-table(is.na(sample_data_wide$research_development_expenses_th_usd_))  #15864  F, 19971   T
-table(is.na(sample_data_wide$price_book_value_ratio_average_high_low_))  #15205 f, 20630 t
-table(is.na(sample_data_wide$market_capitalisation_shareholders_funds_))  #15219 F, 20616 
-
-#hence, there is more data available for the new ones; particularly for RandD_Year and No_employees_Year
-rm(sample_data_long, Additional_data)
-head(sample_data_wide)
-names(sample_data_wide) <- c("company_name_latin_alphabet","Company","CurrentYear", "number_patents_year", "operating_revenue_turnover","number_of_employees", "RandD_Year", "Stock_value", "Market_capitalisation")
-
-#pay attention: in the old file, Orbis would make the R&D data available just under the variable "R&D expenses/Operating revenue (%)"; now it
-#gives the absolute values for Turnover, i.e., "R&D expenses/Operating revenue"; the reading is more straightforward in the latter:
-#it shows how the absolute proportion changed, instead of an absolute change in relation to a relative proportion (which I'm not even sure how to read);
-#therefore, the new data is better; I could use the old R&D data if I'd multiply it by the turnover;
-
-DataLong_Subs_sim <- subset(DataLong_Subs_sim, select = -c(No_employees_Year, Turnover_Year, RandD_Year))
-DataLong_Subs_sim <- left_join(DataLong_Subs_sim, sample_data_wide, by = c("Company","CurrentYear"))
-
-
-Patent_data_HQs_subs <- read.csv("Input_code/Big_files_ignore/Additional_data_patents/Resulting_data_patent_info_HQ_and_subs.csv", header = TRUE) #
-DataLong_Subs_sim<- left_join(DataLong_Subs_sim,Patent_data_HQs_subs, by=c("Company", "CurrentYear"))
-
+#calculate extra indicators
 #subs:
 #Rate granted subs/total
 DataLong_Subs_sim$Rate_granted_subs_rel_HQ <- DataLong_Subs_sim$n_granted_yes_subsidiaries/(DataLong_Subs_sim$n_granted_yes_HQ+DataLong_Subs_sim$n_granted_yes_subsidiaries) 
 #Rate success subs
 DataLong_Subs_sim$Rate_success_subs <- DataLong_Subs_sim$n_granted_yes_subsidiaries/(DataLong_Subs_sim$n_granted_na_subsidiaries+DataLong_Subs_sim$n_granted_yes_subsidiaries) 
-#Rate granted subs/total NON AI
-DataLong_Subs_sim$Rate_granted_subs_rel_HQ_nonai <- DataLong_Subs_sim$n_granted_yes_nonai_subsidiaries/(DataLong_Subs_sim$n_granted_yes_nonai_HQ+DataLong_Subs_sim$n_granted_yes_nonai_subsidiaries) 
 #Rate granted per sub (i.e., patent productivity per sub)
 DataLong_Subs_sim$Rate_granted_per_sub <- DataLong_Subs_sim$n_granted_yes_subsidiaries/(DataLong_Subs_sim$No_subs_extended) 
 #Rate granted subs/total considering the old numbers of patents calculated
@@ -512,8 +425,6 @@ DataLong_Subs_sim$Rate_granted_subs_rel_HQ_TOTAL <- DataLong_Subs_sim$NoPatentsY
 #Rate success hq
 DataLong_Subs_sim$Rate_success_HQ <- DataLong_Subs_sim$n_granted_yes_HQ/(DataLong_Subs_sim$n_granted_na_HQ+DataLong_Subs_sim$n_granted_yes_HQ) 
 
-#develop additional indicators
-#for the whole company
 #Patent Productivity (Patents per R&D Investment)
 DataLong_Subs_sim$Patent_productivity <- DataLong_Subs_sim$No_new_PatentsYearGUOalone/DataLong_Subs_sim$RandD_Year
 #Patent Output per Employee
@@ -3009,17 +2920,8 @@ results_df$mode <- "non_standard"
 
 write.xlsx(results_df, file = "Output_code/Data/Table_3_and_Appendix_H_granted.xlsx", rowNames = F)
 
-####2.4.1. Treatment with more than 1 granted patents--------
-######attention-----
-#remove new variables
-#dropped here the 3 new variables "avg_time_publication_to_grant", "avg_time_filing_to_grant_HQ", "avg_time_filing_to_grant_subsidiaries"
-variables <- variables[!variables %in% c(
-  "avg_time_publication_to_grant",
-  "avg_time_filing_to_grant_HQ",
-  "avg_time_filing_to_grant_subsidiaries"
-)]
-
-####2.4.2.Treatment granted 2 granted patents-----
+##2.4. Treatment with more than 1 granted patents--------
+###2.4.1.Treatment granted 2 granted patents-----
 Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
 Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
 
@@ -3035,7 +2937,7 @@ DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$
 DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR" ,]
 DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom",]
 
-######2.4.2.1.Calculate the effects Non-standardized across groups -----
+######2.4.1.1.Calculate the effects Non-standardized across groups -----
 #Group 1
 variable_n = 1
 n_group = 1
@@ -3401,7 +3303,7 @@ results_df$mode <- "non_standard"
 
 write.xlsx(results_df, file = "Output_code/Data/Appendix_H_2plus_granted.xlsx", rowNames = F)
 
-####2.4.3. Treatment granted 3 granted patents-----
+###2.4.2. Treatment granted 3 granted patents-----
 Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
 Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
 
@@ -3417,7 +3319,7 @@ DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$
 DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR" ,]
 DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom",]
 
-#####2.4.3.1.Calculate the effects Non-standardized across groups -----
+#####2.4.2.1.Calculate the effects Non-standardized across groups -----
 #Group 1
 variable_n = 1
 n_group = 1
@@ -3782,6 +3684,166 @@ results_df$dataset <- "granted_3patents"
 results_df$mode <- "non_standard"
 
 write.xlsx(results_df, file = "Output_code/Data/Appendix_H_3plus_granted.xlsx", rowNames = F)
+
+##2.5. Contrasting successful from unsuccessful AI innovators-------
+Group2 <-read.csv("Output_code/Data/Matched_Group2_applied_for_but_nonegranted_vs_granted.csv", sep = ";", header = TRUE, dec=",") 
+DataLong_Subs_sim %<>% group_by(Company) %>% mutate(total_granted_ai = max(n_granted_yes_ai, na.rm =T )) %>% ungroup()
+
+#select the companies that introduced AI
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
+
+#Adjust year of treatment to the year - 1
+Current_treated$Year_before_adoption <- as.integer(Current_treated$YearFirstAdoption) -1
+#Adjust treat to total_granted_ai >0;
+Current_treated %<>% group_by(Company) %>% mutate(new_treat = ifelse(total_granted_ai==0,0,1) ) %>% ungroup()
+Current_treated_matched <- Current_treated[Current_treated$Company %in% Group2$Company,]
+#replace NAs in subs by 0
+#Current_treated_matched$No_subs_extended[is.na(Current_treated_matched$No_subs_extended)] <- 0
+length(unique(Current_treated_matched$id)) #216
+length(unique(Current_treated_matched$Company)) #216, so it's correct!
+
+###2.5.1. F-tests ----- 
+new_variables = c(
+  #necessary ones:
+  "Company","new_treat", "Quartile", "CurrentYear","YearFirstAdoption", "Year_before_adoption",
+  
+  #main ones:
+  "Relatedness_Cos2", "NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass","Herfindahl", "Shannon", "AIcodes",
+  
+  #quality measures 
+  "Rate_granted", "avg_claims", "avg_number_of_family_members", "avg_backward_citations", "avg_forward_citations", "avg_time_filing_to_publication",
+  "avg_time_filing_to_grant", "avg_time_publication_to_grant", "n_granted_na", "n_granted_yes",
+  #subs and HQs 
+  "Rate_success_subs", "Rate_success_HQ", "n_granted_yes_HQ", "n_granted_na_HQ", "avg_time_filing_to_publication_HQ", "avg_time_filing_to_grant_HQ", 
+  "avg_time_publication_to_grant_HQ", "n_granted_yes_subsidiaries", "n_granted_na_subsidiaries", "avg_time_filing_to_publication_subsidiaries", "avg_time_filing_to_grant_subsidiaries", "avg_time_publication_to_grant_subsidiaries", 
+  
+  #aditional performance variables (3) - knowledge productivity
+  "Patent_productivity", "Patent_output_per_employee", "RandD_Year",
+  
+  #extra ones
+  "Size_class", "Agegroup", "Date_Incorporation", "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal", "No_subs_extended", "operating_revenue_turnover",
+  "number_of_employees", "number_patents_year","NoPatentsYearGUOalone","NoPatentsYearALLSubs","Stock_value", "Market_capitalisation",
+  "total_granted_ai")
+
+reordered_data <- Current_treated_matched %>%
+  select(all_of(new_variables))
+
+reordered_data_Year_tminus1 <- reordered_data %>%
+  filter(Year_before_adoption == CurrentYear)
+
+tminus1 <- st(reordered_data_Year_tminus1,  group = "new_treat",  group.test = TRUE,
+              summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t <- reordered_data %>%
+  filter(as.integer(YearFirstAdoption) == CurrentYear)
+
+t <- st(reordered_data_Year_t,  group = "new_treat",  group.test = TRUE,
+        summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t_plus1 <- reordered_data %>%
+  filter(as.numeric(YearFirstAdoption) +1 == CurrentYear)
+
+t_plus1 <- st(reordered_data_Year_t_plus1,  group = "new_treat",  group.test = TRUE,
+              summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t_plus2 <- reordered_data %>%
+  filter(as.numeric(YearFirstAdoption) +2== CurrentYear)
+
+t_plus2 <- st(reordered_data_Year_t_plus2,  group = "new_treat",  group.test = TRUE,
+              summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t_plus3 <- reordered_data %>%
+  filter(as.numeric(YearFirstAdoption)+3 == CurrentYear)
+
+t_plus3<-st(reordered_data_Year_t_plus3,  group = "new_treat",  group.test = TRUE,
+            summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+write.csv2(tminus1, file = "Output_code/Data/Descriptive_statistics_AppendixI_tminus1.csv", row.names = F) 
+write.csv2(t, file = "Output_code/Data/Descriptive_statistics_AppendixI_t.csv", row.names = F) 
+write.csv2(t_plus1, file = "Output_code/Data/Descriptive_statistics_AppendixI_t_plus1.csv", row.names = F) 
+write.csv2(t_plus2, file = "Output_code/Data/Descriptive_statistics_AppendixI_t_plus2.csv", row.names = F) 
+write.csv2(t_plus3, file = "Output_code/Data/Descriptive_statistics_AppendixI_t_plus3.csv", row.names = F) 
+
+###2.5.2.Wilcoxon rank-sum test-----
+variables_to_test <- c(
+  #main ones:
+  "Relatedness_Cos2", "NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass","Herfindahl", "Shannon", "AIcodes",
+  
+  #quality measures 
+  "Rate_granted", "avg_claims", "avg_number_of_family_members", "avg_backward_citations", "avg_forward_citations", "avg_time_filing_to_publication",
+  "avg_time_filing_to_grant", "avg_time_publication_to_grant", "n_granted_na", "n_granted_yes",
+  #subs and HQs 
+  "Rate_success_subs", "Rate_success_HQ", "n_granted_yes_HQ", "n_granted_na_HQ", "avg_time_filing_to_publication_HQ", "avg_time_filing_to_grant_HQ", 
+  "avg_time_publication_to_grant_HQ", "n_granted_yes_subsidiaries", "n_granted_na_subsidiaries", "avg_time_filing_to_publication_subsidiaries", "avg_time_filing_to_grant_subsidiaries", "avg_time_publication_to_grant_subsidiaries", 
+  
+  #aditional performance variables (3) - knowledge productivity
+  "Patent_productivity", "Patent_output_per_employee", "RandD_Year",
+  
+  #extra ones
+  # "Size_class", "Agegroup", 
+  "Date_Incorporation", "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal", "No_subs_extended", "operating_revenue_turnover",
+  "number_of_employees", "number_patents_year","NoPatentsYearGUOalone","NoPatentsYearALLSubs","Stock_value", "Market_capitalisation",
+  "total_granted_ai")
+
+#for t-1
+wilcox_results_t_minus1 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_tminus1)
+  wilcox_results_t_minus1[[variable]] <- test_result$p.value
+}
+wilcox_results_t_minus1<-as.data.frame(wilcox_results_t_minus1) #for wilcox, p-value > 0.05 means no significant differences, and values below mean significant differences
+wilcox_results_t_minus1$Period <- "t-1"
+
+#for t
+wilcox_results_t <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t)
+  wilcox_results_t[[variable]] <- test_result$p.value}
+wilcox_results_t<-as.data.frame(wilcox_results_t) 
+wilcox_results_t$Period <- "t"
+
+#for t+1
+wilcox_results_t_plus1 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus1)
+  wilcox_results_t_plus1[[variable]] <- test_result$p.value}
+wilcox_results_t_plus1<-as.data.frame(wilcox_results_t_plus1) 
+wilcox_results_t_plus1$Period <- "t+1"
+
+#for t+2
+wilcox_results_t_plus2 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus2)
+  wilcox_results_t_plus2[[variable]] <- test_result$p.value}
+wilcox_results_t_plus2<-as.data.frame(wilcox_results_t_plus2) 
+wilcox_results_t_plus2$Period <- "t+2"
+
+#for t+3
+wilcox_results_t_plus3 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus3)
+  wilcox_results_t_plus3[[variable]] <- test_result$p.value}
+wilcox_results_t_plus3<-as.data.frame(wilcox_results_t_plus3) 
+wilcox_results_t_plus3$Period <- "t+3"
+
+wilcox <- rbind(wilcox_results_t_minus1, wilcox_results_t,wilcox_results_t_plus1, wilcox_results_t_plus2,wilcox_results_t_plus3)
+
+transposed_df <- wilcox %>%
+  pivot_longer(
+    cols = -Period,
+    names_to = "variables",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = Period,
+    values_from = value)
+
+write.csv2(transposed_df, file = "Output_code/Data/Descriptive_statistics_AppendixI_Wilcox_results.csv", row.names = F) 
 
 #3.Descriptive statistics and correlations-----
 ##3.1.Statistics All data------

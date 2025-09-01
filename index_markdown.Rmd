@@ -1,19 +1,23 @@
 ---
-title: "Markdown code measuring the effects of AI on MNEs"
+title: "Markdown - Measuring the effects of AI introduction on MNEs' innovative performance"
 output:
   html_document:
+    toc: true
+    toc_float: true # This makes it a floating sidebar in HTML
+    theme: united
     df_print: paged
+  word_document: default
   pdf_document: default
-date: "2024-09-20"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE)
+knitr::opts_chunk$set()
 ```
 
-# 1. Measuring technological distance
+# 1. Measuring technological distances: from 4-digit IPC codes to AI technologies, and from NACE sectors to AI.
 
-In this first part, we first measure the technology distance of different 4-digit IPC codes to the patents we defined as AI patents, and then we treat AI as a sector and measure the technological distance of NACE sectors to it.
+In this first part, we measure the technology distance of different 4-digit IPC codes to the patents we defined as AI patents, and then we treat AI as a sector and measure the technological distance of NACE sectors to it.
 
 ## 1.1. Technological distance of 4-digit IPC codes to AI
 
@@ -70,7 +74,6 @@ Next, we introduce AI as a technology by copying AI patents into a new dataset, 
 rm(CompaniesData1,CompaniesData2,CompaniesData3,CompaniesData4,CompaniesData5,CompaniesData6)
 all_patents <- left_join(all_patents, CompaniesData, by = "Company")
 all_patents <- all_patents[is.na(all_patents$Nace_4d) == F,] #drops companies without Nace codes
-rm(CompaniesData)
 all_patents<-all_patents[,c(-7)]#excludes company name
 #create the 3 functions we'll use later:
 #1.create a function for fractional counting IPC codes on which patent
@@ -135,25 +138,26 @@ print(as.matrix(mat_tech[1:20, 1:5]))
 
 This matrix is saved with the name **"Matrix_relatedness_technologies_to_AI.csv"** to be used later.
 
-## 1.2.Technological distance of NACE sectors to AI
-#Let's now calculate the distance of NACE sectors to AI. Now, we copy AI patents into a new dataset and change the NACE codes from this new dataset to a code named **"AI"**. Then, we merge it back to the dataset (the AI patents created artificially before are already excluded) and calculate the relatedness of NACE sectors to the fake "AI sector".
+## 1.2. Technological distance of NACE sectors to AI
+Let's now calculate the distance of NACE sectors to AI. We first copy the AI patents into a new dataset and change the NACE codes from this new dataset to a fictional NACE code named **"AI"**. Then, we merge it back to the dataset (the AI patents created artificially before are already excluded) and calculate the relatedness of NACE sectors to this fake "AI sector".
 ```{r, include=FALSE}
 rm(mat_tech)
-all_patents <- all_patents[all_patents$Subclass != "Artificial_Intelligence",]
-AIPatents<- all_patents[all_patents$AIpatent == "Yes",]#add AI as if it were an industry
-AIPatents$Nace_4d <- "AI"
-all_patents<-rbind(all_patents, AIPatents)#merge this new sector back to the longer dataset
-rm(AIPatents)
+all_patents <-fread("Input_code/Big_files_ignore/All_patents.csv")
+all_patents <- left_join(all_patents, CompaniesData, by = "Company")
+#drop companies without Nace codes:
+all_patents <- all_patents[is.na(all_patents$Nace_4d) == F,]
+rm(CompaniesData)
+#exclude company name:
+all_patents<-all_patents[,c(-7)]
 #count total of patents of each sector, and total of AI patents;
 all_patents %<>% group_by(Nace_4d) %>% 
   mutate(TotalPatents = length(unique(PubNo))) %>% #get the higher share of usage
   mutate(TotalAIPatents = length(na.omit(unique(PubNo[AIpatent == "Yes"])))) %>% 
   mutate(ShareAI = TotalAIPatents/TotalPatents) %>% 
   ungroup()
-describe(all_patents$TotalPatents) 
-all_patents <- all_patents[all_patents$TotalPatents >= 500,]
+
 #Finally, let's apply the two functions we created before:
-reg_tech <- group_by_applnID(all_patents) #this gets the relative participation of each IPC code on each patent
+reg_tech <- group_by_applnID(all_patents)
 ```
 
 We first calculate the relative participation of each IPC code on each patent:
@@ -179,7 +183,7 @@ And convert this into a matrix where we have one line per NACE code, and all tec
 ```{r}
 head(mat_reg_tech)
 ```
-
+We then calculate the specializations of all sectors on each technology:
 ```{r, include=FALSE}
 #let's throw the nace codes into the column names
 mat_reg_tech %<>% remove_rownames %>% column_to_rownames(var="Nace_4d") %>%
@@ -193,56 +197,95 @@ rel_sectors_codes <- mat_reg_tech %>% location_quotient(binary = T) %>%
   gather(key = "Subclass", value = "RCA", -mat_reg_tech) %>%
   arrange(mat_reg_tech, Subclass)
 ```
-
-Finally, we calculate the specializations of all sectors on each technology:
 ```{r}
 head(rel_sectors_codes)
 ```
+
+NEW NEW NEW
+Now, we read the list of codes related to AI, and select the top 9:
 ```{r, include=FALSE}
-#let's transform this back into a matrix:
-rel_sectors_codes %<>%
-  arrange(Subclass, mat_reg_tech) %>%
-  pivot_wider(names_from = Subclass, values_from = RCA, values_fill = list(RCA = 0)) #transform on a binary-like matrix
+#let's see now which ones are the main AI codes
+mat_tech_rel <-read.csv2("Output_code/Data/Matrix_relatedness_technologies_to_AI.csv")#file we created before measuring the relatedness of AI to other technologies
+mat_tech_rel <- mat_tech_rel[,c("X", "Artificial_Intelligence")] #select the AI and the other technologies columns
+#let's pick the 9 codes with higher relatedness to AI:
+AI_codes_top9 <- mat_tech_rel[mat_tech_rel$Artificial_Intelligence >.038,1] #9 codes
 ```
-
-Let's transform this back into a matrix:
 ```{r}
-head(rel_sectors_codes)
+head(AI_codes_top9)
 ```
 
-Now, we set the AI sector with its specializations as a target, and calculate the distance of all sectors to it based on MAE. The result looks like this:
+Finally, we simply calculate the share of specializations of each NACE that coincides with these 9 AI codes. The result looks like this:
 ```{r, include=FALSE}
 #replace NA values by 0
-rel_sectors_codes[is.na(rel_sectors_codes)] <- 0
-#let's set the AI sector as a target/reference for calculating the distance:
-predicted <- rel_sectors_codes[rel_sectors_codes$mat_reg_tech=="AI",]
-predicted<- predicted[,(-1)]
-predicted<-as.vector(predicted,mode='numeric')
-#let's calculate the distance from all sectors to this AI reference:
-AverageDistance <- as.data.frame("Nace_4d", col.names = "a")
-
-for (i in 1:length(rel_sectors_codes$mat_reg_tech)){
-  
-  AverageDistance[i] <- mae(as.vector(rel_sectors_codes[i,][,(-1)],mode='numeric'),predicted)
+# Function to count specializations for a given list of codes
+count_specializations <- function(data, code_list, column_name) {
+  data %>% mutate(
+    !!column_name := case_when(Subclass %in% code_list & RCA == 1 ~ 1,
+                               TRUE ~ 0)) %>%
+    group_by(mat_reg_tech) %>%
+    summarise(!!column_name := sum(!!as.symbol(column_name), na.rm = TRUE), .groups = "drop")
 }
-AverageDistance <- as.data.frame(t(AverageDistance))
-Sectors <- as.data.frame(rel_sectors_codes[,1])
-AverageDistance <- cbind(AverageDistance,Sectors)
-names(AverageDistance) <- c("AverageDistance", "Nace_4d")
-#let's create the group category based on quartiles. the lower the distance to AI, the closer the sector is to it
-AverageDistance$Quartile <- ifelse(AverageDistance$AverageDistance>=quantile(AverageDistance$AverageDistance)[[4]], "bottom",
-                                                ifelse(AverageDistance$AverageDistance<quantile(AverageDistance$AverageDistance)[[4]] & 
-                                                         AverageDistance$AverageDistance>quantile(AverageDistance$AverageDistance)[[2]], "medium", "top"))
+
+# Create the new columns
+rel_sectors_codes <- rel_sectors_codes %>%
+  left_join(count_specializations(rel_sectors_codes, AI_codes_top9, "AI_specializations_top9"), by = "mat_reg_tech")
+
+#rename the mat_reg_tech column
+names(rel_sectors_codes)[names(rel_sectors_codes) == 'mat_reg_tech'] <- 'Nace_4d'
+
+#now, I'll count the total number of specializations of each nace
+rel_sectors_codes  %<>%  group_by(Nace_4d) %>% 
+  mutate(number_spec = length(unique(Subclass[RCA == 1]))) %>% 
+  mutate(Share_top9 = AI_specializations_top9/number_spec) %>% 
+  ungroup()
+
+#separate, keeping just one line per sector
+Unique_sectors <- distinct_at(rel_sectors_codes, vars(Nace_4d), .keep_all = T)
+Unique_sectors <- subset(Unique_sectors, select = -c(Subclass) )
+table(is.nan(Unique_sectors$Share_top9))
+#replace nan values by 0:
+Unique_sectors <- Unique_sectors %>%
+  mutate(across(everything(), ~ ifelse(is.nan(.), 0, .)))
+table(is.nan(Unique_sectors$Share_top9))
+
+#create quartiles information
+# Function to create quartile variable
+create_quartile_variable <- function(data, share_column, quartile_column_name) {
+  
+  share_column_sym <- sym(share_column)  # Convert share_column to a symbol
+  
+  data %>%
+    mutate(
+      !!quartile_column_name := case_when(
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0, na.rm = TRUE), 
+                quantile(!!share_column_sym, 0.25, na.rm = TRUE)) ~ "Bottom",
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0.25, na.rm = TRUE), 
+                quantile(!!share_column_sym, 0.75, na.rm = TRUE)) ~ "IQR",
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0.75, na.rm = TRUE), 
+                quantile(!!share_column_sym, 1, na.rm = TRUE)) ~ "Top",
+        TRUE ~ NA_character_ # Handle missing values
+      )
+    )
+}
+
+# Create the new quartile columns
+Unique_sectors <- Unique_sectors %>%
+  create_quartile_variable("Share_top9", "Quartile_top9")
+
+#check value counts in each category:
+table(Unique_sectors$Quartile_top9)
 ```
 ```{r}
-head(AverageDistance)
+head(Unique_sectors)
 ```
+This file is saved with the name **"Distance_measure.csv"**
 
-This file is saved with the name **"Distance_NACE_sectors_to_AI.csv"**
-
-# 2.Measuring effects
-## 2.1.Overall
-### 2.1.1.Non-standard - Relatedness and number of patents regardless of sector
+# 2. Measuring effects
+## 2.1. Overall
+### 2.1.1. Non-standard - Relatedness and number of patents regardless of sector
 ```{r, include=FALSE}
 rm(list=ls())
 DataLong_Subs_sim <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec=",") #
@@ -263,7 +306,7 @@ summary(agg.simple)
 ```{r, include=FALSE}
 agg.es <- aggte(example_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es)
-Fig<- ggdid(agg.es, title = "H1) All quartiles - Relatedness") + theme(legend.position="right") +   ylab("Knowledge-relatedness") + 
+Fig<- ggdid(agg.es, title = "G1) All quartiles - Relatedness") + theme(legend.position="right") +   ylab("Knowledge-relatedness") + 
   xlab("Length of exposure") + scale_color_manual(values=c("grey70","orange"),labels = c("Pre-treatment", "Post-treatment")) + 
   geom_vline(xintercept = 0, linetype="dotted", color = "black", size=1, alpha = 0.3)
 ```
@@ -291,7 +334,7 @@ Let's see the effects considering dynamic events:
 #1.1.2.Dynamic Effects and Event Studies
 agg.es <- aggte(example_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es) 
-Fig<- ggdid(agg.es, title = "H2) All quartiles - Innovative performance") + 
+Fig<- ggdid(agg.es, title = "G2) All quartiles - Innovative performance") + 
   theme(legend.position="right") +
   ylab("Number of patents") + 
   xlab("Length of exposure") + 
@@ -334,7 +377,7 @@ model_moderation <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment * Relatedn
 summary(model_moderation)
 ```
 
-### 2.1.2.Standardized - Relatedness and number of patents regardless of sector
+### 2.1.2. Standardized - Relatedness and number of patents regardless of sector
 Let's now standardize the values and re estimate the effects for the same variables. Starting with relatedness:
 ```{r, include=FALSE}
 DataLong_Subs_sim_standard <- DataLong_Subs_sim
@@ -422,14 +465,18 @@ DataLong_Subs_sim$AIcodes[is.na(DataLong_Subs_sim$AIcodes)] <- 0
 table(is.na(DataLong_Subs_sim$AIcodes)) #35196 F
 
 #Insert distance  measure
-CategoriesNace <-read.csv("Output_code/Data/Distance_NACE_sectors_to_AI.csv", sep = ";", header = TRUE, dec=",")#[,c(-1)] #doesn't work, no significance
+CategoriesNace <-read.csv("Output_code/Data/Distance_measure.csv", header=TRUE) 
+CategoriesNace <- CategoriesNace[,c("Nace_4d", "Quartile_top9")]
+names(CategoriesNace) <- c("Nace_4d", "Quartile")
+CategoriesNace$Nace_4d <- as.character(CategoriesNace$Nace_4d)
 DataLong_Subs_sim$Nace_4d <- as.character(DataLong_Subs_sim$Nace_4d)
+
 DataLong_Subs_sim <- left_join(DataLong_Subs_sim,CategoriesNace, by = "Nace_4d")
 
 table(is.na(DataLong_Subs_sim$Quartile)) #33096        F  2100      T
 table(DataLong_Subs_sim$Quartile) #bottom 9380              medium  11004            top 12712      
 
-DataLong_Subs_sim$Quartile[is.na(DataLong_Subs_sim$Quartile)] <- "bottom"
+DataLong_Subs_sim$Quartile[is.na(DataLong_Subs_sim$Quartile)] <- "Bottom"
 table(is.na(DataLong_Subs_sim$Quartile)) #35196 F
 table(DataLong_Subs_sim$Quartile) #bottom 11480             medium  11004            top 12712     
 
@@ -442,9 +489,9 @@ nontreat_test <- distinct_at(nontreat_test, vars(id,subclass), .keep_all = T)
 table(treat_test$Quartile) #bottom 410                    medium  393                      top 454     
 rm(treat_test, nontreat_test)
 
-DataLong_Subs_sim_group1 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "top" & is.na(DataLong_Subs_sim$Quartile) == F,]
-DataLong_Subs_sim_group2 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "medium" & is.na(DataLong_Subs_sim$Quartile) == F,]
-DataLong_Subs_sim_group3 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "bottom"& is.na(DataLong_Subs_sim$Quartile) == F,]
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "Top" & is.na(DataLong_Subs_sim$Quartile) == F,]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "IQR" & is.na(DataLong_Subs_sim$Quartile) == F,]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "Bottom"& is.na(DataLong_Subs_sim$Quartile) == F,]
 
 calculate_ci_and_significance <- function(att, se, group, variable_name) {
   # Confidence intervals at different significance levels
@@ -514,11 +561,10 @@ variables = c("Relatedness_Cos2", #relatedness
 
 ```
 
-### 2.2.1.Calculate the effects Non-standardized
+### 2.2.1. Calculate the effects Non-standardized
 
-#### 2.2.1.1.Relatedness
-Let's calculate the effects for relatedness first, considering the closest group.
-Q1
+#### 2.2.1.1. Relatedness
+Let's calculate the effects for relatedness first, considering the closest group (Q1):
 ```{r, include=FALSE}
 ####2.2.1.1.Relatedness----
 #Group 1
@@ -541,7 +587,7 @@ results_df <- calculate_ci_and_significance(att, se, group, variable_name)
 agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
 
-Fig<- ggdid(agg.es, title = "H3) Q1 - Relatedness") + 
+Fig<- ggdid(agg.es, title = "G3) Q1 - Relatedness") + 
   theme(legend.position="right") +
   ylab("Estimated effect on relatedness") + 
   xlab("Length of exposure") + 
@@ -576,7 +622,7 @@ results_df <- rbind(results_df, results_new)
 agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
 
-Fig<-ggdid(agg.es, title = "H4) IQR - Relatedness") + 
+Fig<-ggdid(agg.es, title = "G4) IQR - Relatedness") + 
   theme(legend.position="right") +
   ylab("Estimated effect on relatedness") + 
   xlab("Length of exposure") + 
@@ -609,7 +655,7 @@ results_df <- rbind(results_df, results_new)
 #dynamic events:
 agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
-Fig<- ggdid(agg.es, title = "H5) Q4 - Relatedness") + 
+Fig<- ggdid(agg.es, title = "G5) Q4 - Relatedness") + 
   theme(legend.position="right") +
   ylab("Estimated effect on relatedness") + 
   xlab("Length of exposure") + 
@@ -624,7 +670,7 @@ results_df
 Fig
 ```
 
-#### 2.2.1.2.Innovative performance
+#### 2.2.1.2. Innovative performance
 Let's do the same for innovative performance, starting with the closest group.
 Q1
 ```{r, include=FALSE}
@@ -647,7 +693,7 @@ results_df <- rbind(results_df, results_new)
 agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es) 
 
-Fig<- ggdid(agg.es, title = "H6) Q1 - Innovative performance") + 
+Fig<- ggdid(agg.es, title = "G6) Q1 - Innovative performance") + 
   theme(legend.position="right") +
   ylab("Estimated effect on number of patents") + 
   xlab("Length of exposure") + 
@@ -662,7 +708,7 @@ results_df
 Fig
 ```
 
-IQR
+For the interquartile range (IQR):
 ```{r, include=FALSE}
 n_group = 2
 group = print(groups[n_group], quote=FALSE)
@@ -680,7 +726,7 @@ results_df <- rbind(results_df, results_new)
 agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
 
-Fig<-ggdid(agg.es, title = "H7) IQR - Innovative performance") + 
+Fig<-ggdid(agg.es, title = "G7) IQR - Innovative performance") + 
   theme(legend.position="right") +
   ylab("Estimated effect on number of patents") + 
   xlab("Length of exposure") + 
@@ -695,7 +741,7 @@ results_df
 Fig
 ```
 
-Q4
+For the lowest quartile (Q4)
 ```{r, include=FALSE}
 n_group = 3
 group = print(groups[n_group], quote=FALSE)
@@ -713,7 +759,7 @@ results_df <- rbind(results_df, results_new)
 agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
 summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
 
-Fig<- ggdid(agg.es, title = "H8) Q4 - Innovative performance") + 
+Fig<- ggdid(agg.es, title = "G8) Q4 - Innovative performance") + 
   theme(legend.position="right") +
   ylab("Estimated effect on number of patents") + 
   xlab("Length of exposure") + 
@@ -1152,7 +1198,7 @@ results_df
 
 These results are saved in the file named **"Results_Effects_non_stand.xlsx"**
 
-### 2.2.2.Calculate the effects Standardized
+### 2.2.2. Calculate the effects Standardized
 Let's do the same for standardized effects, estimating all the effects at once and saving them into a table:
 ```{r, include=FALSE}
 #standardize per group
@@ -1712,13 +1758,16 @@ results_df
 
 These results are saved in a file named **"Results_Effects_stand.xlsx"**
 
-# 3.Descriptive statistics and correlations
+# 3. Descriptive statistics and correlations
 Finally, let's recreate the descriptive statistics shown on the paper.
 ```{r, include=FALSE}
 rm(list=ls())
 FinalDataset <- read.csv("Input_code/Data_all_years_all_MNEs.csv", sep = ";", header = TRUE, dec=",")#[,c(-1)] #doesn't work, no significance
 FinalDataset$Nace_4d <- as.character(FinalDataset$Nace_4d)
-CategoriesNace <-read.csv("Output_code/Data/Distance_NACE_sectors_to_AI.csv", sep = ";", header = TRUE, dec=",")#[,c(-1)] #doesn't work, no significance
+CategoriesNace <-read.csv("Output_code/Data/Distance_measure.csv", header=TRUE)
+CategoriesNace <- CategoriesNace[,c("Nace_4d", "Quartile_top9")]
+names(CategoriesNace) <- c("Nace_4d", "Quartile")
+CategoriesNace$Nace_4d <- as.character(CategoriesNace$Nace_4d)
 
 FinalDataset <- left_join(FinalDataset,CategoriesNace, by = "Nace_4d")
 table(is.na(FinalDataset$Quartile)) #476620 F; 62820 T
@@ -1729,7 +1778,7 @@ table(is.na(FinalDataset$Quartile)) #539440
 table(FinalDataset$Quartile) #bottom 276700     medium 175220       top 87520 
 ```
 
-## 3.1.Statistics All data
+## 3.1. Statistics All data
 Considering the whole dataset, we have:
 ```{r, include=FALSE}
 FinalDataset_2019 <- FinalDataset[FinalDataset$CurrentYear== 2019,]
@@ -1749,7 +1798,7 @@ st(FinalDataset_summary, group = "Quartile",  group.test = TRUE,
 
 These last two tables are saved as **"Descriptive_statistics_all_MNEs_by_Size_class.csv"** and **"Descriptive_statistics_all_MNEs_by_Quartile.csv"**, respectively.
 
-## 3.2.Statistics matched data
+## 3.2. Statistics matched data
 Considering only matched companies, we have:
 ```{r, include=FALSE}
 rm(Size_class, Quartile, CategoriesNace)
@@ -1796,14 +1845,13 @@ st(DataLong_Subs_2006_summary,  group = "Size_class",  group.test = TRUE,
 
 The last three tables are saved under the names **"Descriptive_statistics_matched_companies_Treated.csv"**, **"Descriptive_statistics_matched_companies_Quartile.csv"**, and **"Descriptive_statistics_matched_companies_Size_class.csv"**, respectively.
 
-## 3.3.Analyse correlations
+## 3.3. Analyse correlations
 Finally, let's recreate the plots of correlations. Starting with the matched sample:
 ```{r, include=FALSE}
-data_normalized <- DataLong_Subs_2006_summary[,c("Relatedness_Cos2", "HigherUsage.x", "Specializations_Usage.x", "Specializations_Number.x",
+data_normalized <- DataLong_Subs_2006_summary[,c("Relatedness_Cos2", "Specializations_Number.x",
                                                  "Date_Incorporation","No_AI_PatentsYearGUOtotal", "NoPatentsYearGUOtotal")] 
 
-names(data_normalized) <- c("Relatedness", "Usage of main code", "Usage of specializations",
-                            "N. of specializations","Date of incorporation", "N. of AI patents","N. of patents") 
+names(data_normalized) <- c("Relatedness", "N. of specializations","Date of incorporation", "N. of AI patents","N. of patents") 
 data_normalized <- scale(data_normalized)
 corr_matrix <- cor(na.omit(data_normalized))
 ```
@@ -1814,11 +1862,10 @@ ggcorrplot(corr_matrix, legend.title = "Correlation", hc.order=F,lab = TRUE)
 And now for the whole dataset:
 
 ```{r, include=FALSE}
-data_normalized <- FinalDataset_2019[,c("Relatedness_Cos2", "HigherUsage", "Specializations_Usage", "Specializations_Number",
+data_normalized <- FinalDataset_2019[,c("Relatedness_Cos2", "Specializations_Number",
                                    "Date_Incorporation","No_AI_PatentsYearGUOtotal", "NoPatentsYearGUOtotal")] 
 
-names(data_normalized) <- c("Relatedness", "Usage of main code", "Usage of specializations",
-                            "N. of specializations","Date of incorporation", "N. of AI patents","N. of patents") 
+names(data_normalized) <- c("Relatedness", "N. of specializations","Date of incorporation", "N. of AI patents","N. of patents") 
 data_normalized <- scale(data_normalized)
 corr_matrix <- cor(na.omit(data_normalized))
 ```

@@ -1,0 +1,1874 @@
+---
+title: "Markdown - Measuring the effects of AI introduction on MNEs' innovative performance"
+output:
+  html_document:
+    toc: true
+    toc_float: true # This makes it a floating sidebar in HTML
+    theme: united
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE)
+knitr::opts_chunk$set()
+```
+
+# 1. Measuring technological distances: from 4-digit IPC codes to AI technologies, and from NACE sectors to AI.
+
+In this first part, we measure the technology distance of different 4-digit IPC codes to the patents we defined as AI patents, and then we treat AI as a sector and measure the technological distance of NACE sectors to it.
+
+## 1.1. Technological distance of 4-digit IPC codes to AI
+
+We start by reading all patents that were linked to one of our MNEs or to their subsidiaries. These patents were already processed for allowing matching them directly to the MNE level (hence, patents from subsidiaries are allocated to their highest MNE level).  Then, we read original Orbis files of the MNEs, and match them to the patents, so we can know which NACE sectors are linked to each patent. These are the only files with IP information from Orbis, so they can't be shared. All of the remaining files used in the code are available online.
+
+```{r, include=FALSE}
+library(data.table) #for reading the big files using fread and for replacing countries names (by AI_pat for example)
+library(readxl) #for reading the xlsx files
+library(tidyverse) # Collection of all the good stuff like dplyr, ggplot2 ect.
+library(magrittr) # For extra-piping operators (eg. %<>%)
+library(EconGeo) # Economic Geography functions
+library(psych) #for descriptives
+library(Metrics) #for mae
+library(did) #for treatment effect over distinct periods of time
+library(openxlsx)
+library(zoo) #for some reason the function na.locf is just in the zoo package for me now
+library(vtable) #for functions st and sumtable in the statistics
+library(ggcorrplot) #for correlation table
+
+rm(list=ls())
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#read all patents
+all_patents <-fread("Input_code/Big_files_ignore/All_patents.csv")
+#Now we add the nace codes:
+CompaniesData1<-read_excel("Input_code/Big_files_ignore/DataCompanies1.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData2<-read_excel("Input_code/Big_files_ignore/DataCompanies2.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData3<-read_excel("Input_code/Big_files_ignore/DataCompanies3.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData4<-read_excel("Input_code/Big_files_ignore/DataCompanies4.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData5<-read_excel("Input_code/Big_files_ignore/DataCompanies5.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData6<-read_excel("Input_code/Big_files_ignore/DataCompanies6.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData <- rbind(CompaniesData1,CompaniesData2,CompaniesData3,CompaniesData4,CompaniesData5,CompaniesData6)
+
+```
+
+The patent file looks like this:
+```{r}
+head(all_patents)
+```
+
+The company files (there are six in total, there are ultimately merged into one) look like this:
+```{r}
+head(CompaniesData1)
+```
+
+Let's keep only the information we need:
+```{r}
+CompaniesData <- CompaniesData[,c(2,3,6)] 
+names(CompaniesData) <- c("Company_name", "Company", "Nace_4d")
+head(CompaniesData)
+```
+
+Next, we introduce AI as a technology by copying AI patents into a new dataset, and changing their 4-digit IPC codes to a code named **"Artificial_Intelligence"**. Then, we merge it back to the dataset and calculate a co-occurrance matrix of all codes.
+```{r, include=FALSE}
+rm(CompaniesData1,CompaniesData2,CompaniesData3,CompaniesData4,CompaniesData5,CompaniesData6)
+all_patents <- left_join(all_patents, CompaniesData, by = "Company")
+all_patents <- all_patents[is.na(all_patents$Nace_4d) == F,] #drops companies without Nace codes
+all_patents<-all_patents[,c(-7)]#excludes company name
+#create the 3 functions we'll use later:
+#1.create a function for fractional counting IPC codes on which patent
+group_by_applnID <- function (data){
+  data %>%
+    group_by(PubNo) %>%
+    mutate(field_weight = 1 / n()) %>%
+    ungroup()
+}
+#2.create a function for counting the relative participation of each IPC code for each NACE sector
+group_by_NACE_and_Subclass <- function (data){
+  data %<>%
+    group_by(Nace_4d, Subclass) %>%
+    summarise(n_tech_reg = sum(field_weight)) %>%
+    ungroup() %>%
+    drop_na() 
+}  
+#3. create a function to build a square matrix that aggregates the co-occurrence one variable in regards to other (e.g., how many times two IPC codes appear in the same patent)
+create_sparse_matrix <- function(i.input, j.input){
+  require(Matrix)
+  mat <- spMatrix(nrow = i.input %>% n_distinct(),
+                  ncol = j.input %>% n_distinct(),
+                  i = i.input %>% factor() %>% as.numeric(),
+                  j = j.input %>% factor() %>% as.numeric(),
+                  x = rep(1, i.input %>% length() ) )
+  
+  row.names(mat) <- i.input %>% factor() %>% levels()
+  colnames(mat) <- j.input %>% factor() %>% levels()
+  return(mat)
+}
+
+AI_Patents <- all_patents[all_patents$AIpatent == "Yes",] #Introduce AI as a specific subclass
+AI_Patents_with_code <- distinct_at(AI_Patents, vars(PubNo,Company), .keep_all = T)#pick distinct codes at two variables
+AI_Patents_with_code$Subclass <- "Artificial_Intelligence" #
+AI_Patents <- rbind(AI_Patents, AI_Patents_with_code)
+all_patents <- rbind(all_patents, AI_Patents)
+rm(AI_Patents_with_code, AI_Patents)
+
+#now let's create a square matrix where we see how often two IPC codes appear in the same patent
+mat_tech <- create_sparse_matrix(i = all_patents %>% pull(PubNo),
+                                 j = all_patents %>% pull(Subclass))
+
+#let's convert this to a matrix that we can properly visualize:
+mat_tech %<>% 
+  crossprod() %>% 
+  as.matrix() 
+```
+
+The co-occurrance matrix looks like this:
+```{r}
+print(as.matrix(mat_tech[1:20, 1:12]))
+```
+
+Let's now calculate the relatedness of every technology to AI:
+```{r, include=FALSE}
+mat_tech %<>% 
+  relatedness(method = "cosine")
+```
+```{r}
+print(as.matrix(mat_tech[1:20, 1:5]))
+```
+
+This matrix is saved with the name **"Matrix_relatedness_technologies_to_AI.csv"** to be used later.
+
+## 1.2. Technological distance of NACE sectors to AI
+Let's now calculate the distance of NACE sectors to AI. We first copy the AI patents into a new dataset and change the NACE codes from this new dataset to a fictional NACE code named **"AI"**. Then, we merge it back to the dataset (the AI patents created artificially before are already excluded) and calculate the relatedness of NACE sectors to this fake "AI sector".
+```{r, include=FALSE}
+rm(mat_tech)
+all_patents <-fread("Input_code/Big_files_ignore/All_patents.csv")
+all_patents <- left_join(all_patents, CompaniesData, by = "Company")
+#drop companies without Nace codes:
+all_patents <- all_patents[is.na(all_patents$Nace_4d) == F,]
+rm(CompaniesData)
+#exclude company name:
+all_patents<-all_patents[,c(-7)]
+#count total of patents of each sector, and total of AI patents;
+all_patents %<>% group_by(Nace_4d) %>% 
+  mutate(TotalPatents = length(unique(PubNo))) %>% #get the higher share of usage
+  mutate(TotalAIPatents = length(na.omit(unique(PubNo[AIpatent == "Yes"])))) %>% 
+  mutate(ShareAI = TotalAIPatents/TotalPatents) %>% 
+  ungroup()
+
+#Finally, let's apply the two functions we created before:
+reg_tech <- group_by_applnID(all_patents)
+```
+
+We first calculate the relative participation of each IPC code on each patent:
+```{r}
+head(reg_tech)
+```
+```{r, include=FALSE}
+reg_tech <- group_by_NACE_and_Subclass(reg_tech) #this gets the sum of the relative participation of each code for each NACE
+```
+
+Then, we calculate the sum of the relative participation of each code for each NACE:
+```{r}
+head(reg_tech)
+```
+```{r, include=FALSE}
+#let's convert this into a matrix where we have one line per NACE code, and all technologies linked to them in the columns
+mat_reg_tech <- reg_tech %>%
+  arrange(Subclass) %>% 
+  pivot_wider(names_from = Subclass, values_from = n_tech_reg, values_fill = list(n_tech_reg = 0)) #
+```  
+
+And convert this into a matrix where we have one line per NACE code, and all technologies linked to them in the columns:  
+```{r}
+head(mat_reg_tech)
+```
+We then calculate the specializations of all sectors on each technology:
+```{r, include=FALSE}
+#let's throw the nace codes into the column names
+mat_reg_tech %<>% remove_rownames %>% column_to_rownames(var="Nace_4d") %>%
+  as.matrix() %>%
+  round() 
+#and calculate binary specializations
+rel_sectors_codes <- mat_reg_tech %>% location_quotient(binary = T) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("mat_reg_tech") %>% 
+  as_tibble() %>% 
+  gather(key = "Subclass", value = "RCA", -mat_reg_tech) %>%
+  arrange(mat_reg_tech, Subclass)
+```
+```{r}
+head(rel_sectors_codes)
+```
+
+NEW NEW NEW
+Now, we read the list of codes related to AI, and select the top 9:
+```{r, include=FALSE}
+#let's see now which ones are the main AI codes
+mat_tech_rel <-read.csv2("Output_code/Data/Matrix_relatedness_technologies_to_AI.csv")#file we created before measuring the relatedness of AI to other technologies
+mat_tech_rel <- mat_tech_rel[,c("X", "Artificial_Intelligence")] #select the AI and the other technologies columns
+#let's pick the 9 codes with higher relatedness to AI:
+AI_codes_top9 <- mat_tech_rel[mat_tech_rel$Artificial_Intelligence >.038,1] #9 codes
+```
+```{r}
+head(AI_codes_top9)
+```
+
+Finally, we simply calculate the share of specializations of each NACE that coincides with these 9 AI codes. The result looks like this:
+```{r, include=FALSE}
+#replace NA values by 0
+# Function to count specializations for a given list of codes
+count_specializations <- function(data, code_list, column_name) {
+  data %>% mutate(
+    !!column_name := case_when(Subclass %in% code_list & RCA == 1 ~ 1,
+                               TRUE ~ 0)) %>%
+    group_by(mat_reg_tech) %>%
+    summarise(!!column_name := sum(!!as.symbol(column_name), na.rm = TRUE), .groups = "drop")
+}
+
+# Create the new columns
+rel_sectors_codes <- rel_sectors_codes %>%
+  left_join(count_specializations(rel_sectors_codes, AI_codes_top9, "AI_specializations_top9"), by = "mat_reg_tech")
+
+#rename the mat_reg_tech column
+names(rel_sectors_codes)[names(rel_sectors_codes) == 'mat_reg_tech'] <- 'Nace_4d'
+
+#now, I'll count the total number of specializations of each nace
+rel_sectors_codes  %<>%  group_by(Nace_4d) %>% 
+  mutate(number_spec = length(unique(Subclass[RCA == 1]))) %>% 
+  mutate(Share_top9 = AI_specializations_top9/number_spec) %>% 
+  ungroup()
+
+#separate, keeping just one line per sector
+Unique_sectors <- distinct_at(rel_sectors_codes, vars(Nace_4d), .keep_all = T)
+Unique_sectors <- subset(Unique_sectors, select = -c(Subclass) )
+table(is.nan(Unique_sectors$Share_top9))
+#replace nan values by 0:
+Unique_sectors <- Unique_sectors %>%
+  mutate(across(everything(), ~ ifelse(is.nan(.), 0, .)))
+table(is.nan(Unique_sectors$Share_top9))
+
+#create quartiles information
+# Function to create quartile variable
+create_quartile_variable <- function(data, share_column, quartile_column_name) {
+  
+  share_column_sym <- sym(share_column)  # Convert share_column to a symbol
+  
+  data %>%
+    mutate(
+      !!quartile_column_name := case_when(
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0, na.rm = TRUE), 
+                quantile(!!share_column_sym, 0.25, na.rm = TRUE)) ~ "Bottom",
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0.25, na.rm = TRUE), 
+                quantile(!!share_column_sym, 0.75, na.rm = TRUE)) ~ "IQR",
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0.75, na.rm = TRUE), 
+                quantile(!!share_column_sym, 1, na.rm = TRUE)) ~ "Top",
+        TRUE ~ NA_character_ # Handle missing values
+      )
+    )
+}
+
+# Create the new quartile columns
+Unique_sectors <- Unique_sectors %>%
+  create_quartile_variable("Share_top9", "Quartile_top9")
+
+#check value counts in each category:
+table(Unique_sectors$Quartile_top9)
+```
+```{r}
+head(Unique_sectors)
+```
+This file is saved with the name **"Distance_measure.csv"**
+
+# 2. Measuring effects
+## 2.1. Overall
+### 2.1.1. Non-standard - Relatedness and number of patents regardless of sector
+```{r, include=FALSE}
+rm(list=ls())
+DataLong_Subs_sim <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec=",") #
+
+#1.1.1.Simple Aggregation Relatedness
+example_attgt <- att_gt(yname = "Relatedness_Cos2", tname = "CurrentYear", idname = "id",
+                        gname = "first.treat", xformla = ~1, data = DataLong_Subs_sim, alp=.01
+)
+
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+
+First we calculate the overall effects on relatedness. The results are:
+```{r}
+summary(agg.simple) 
+```
+
+```{r, include=FALSE}
+agg.es <- aggte(example_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es)
+Fig<- ggdid(agg.es, title = "G1) All quartiles - Relatedness") + theme(legend.position="right") +   ylab("Knowledge-relatedness") + 
+  xlab("Length of exposure") + scale_color_manual(values=c("grey70","orange"),labels = c("Pre-treatment", "Post-treatment")) + 
+  geom_vline(xintercept = 0, linetype="dotted", color = "black", size=1, alpha = 0.3)
+```
+
+Let's take a look at what this looks like considering dynamics events:
+```{r, echo=FALSE}
+Fig
+```
+
+Now we calculate the overall effects on innovative performance. The results are:
+```{r, include=FALSE}
+#Simple Aggregation Innovative performance
+example_attgt <- att_gt(yname = "NoPatentsYearGUOtotal", tname = "CurrentYear", idname = "id", 
+                        gname = "first.treat", xformla = ~1, data = DataLong_Subs_sim, alp=.01
+)
+
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+```{r}
+summary(agg.simple)
+```
+
+Let's see the effects considering dynamic events:
+```{r, include=FALSE}
+#1.1.2.Dynamic Effects and Event Studies
+agg.es <- aggte(example_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) 
+Fig<- ggdid(agg.es, title = "G2) All quartiles - Innovative performance") + 
+  theme(legend.position="right") +
+  ylab("Number of patents") + 
+  xlab("Length of exposure") + 
+  # ylim(-1, 4) +
+  scale_color_manual(values=c("grey70","saddlebrown"),labels = c("Pre-treatment", "Post-treatment")) + 
+  #labs(subtitle = "Effect on the number of patents")+
+  geom_vline(xintercept = 0, linetype="dotted", 
+             color = "black", size=1, alpha = 0.3)
+```
+```{r, echo=FALSE}
+Fig
+```
+
+#### Moderating effects (non-standard)
+Let's calculate moderating effects of relatedness on innovative performance. Starting with relatedness without any moderation (i.e., let's just look at what is the treatment effect of AI using a traditional did approach):
+```{r, include=FALSE}
+DataLong_Subs_sim$post_treatment <- ifelse(DataLong_Subs_sim$CurrentYear >= DataLong_Subs_sim$first.treat & 
+                                               DataLong_Subs_sim$Group <= DataLong_Subs_sim$CurrentYear, 1, 0)
+
+#Basic DiD model without the moderator for relatedness
+model <- lm(Relatedness_Cos2 ~ treat * post_treatment, data = DataLong_Subs_sim)
+```
+```{r}
+summary(model) 
+```
+
+Let's calculate now the treatment effect of AI using a traditional did approach for innovative performance:
+```{r, include=FALSE}
+model <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment, data = DataLong_Subs_sim)
+```
+```{r}
+summary(model) 
+```
+
+Finally, we estimate the moderating effects of relatedness on innovative performance. The effect of innovative performance is shown in the variable "treat:post_treatment", whereas the moderating effect of relatedness is shown in variable treat:post_treatment:Relatedness_Cos2.
+```{r, include=FALSE}
+model_moderation <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment * Relatedness_Cos2, data = DataLong_Subs_sim)
+```
+```{r}
+summary(model_moderation)
+```
+
+### 2.1.2. Standardized - Relatedness and number of patents regardless of sector
+Let's now standardize the values and re estimate the effects for the same variables. Starting with relatedness:
+```{r, include=FALSE}
+DataLong_Subs_sim_standard <- DataLong_Subs_sim
+DataLong_Subs_sim_standard[,c("Relatedness_Cos2", "NoPatentsYearGUOtotal")] <- 
+  scale(DataLong_Subs_sim_standard[,c("Relatedness_Cos2", "NoPatentsYearGUOtotal")])
+
+#Simple Aggregation Relatedness
+example_attgt <- att_gt(yname = "Relatedness_Cos2", tname = "CurrentYear", idname = "id", gname = "first.treat",
+                        xformla = ~1, data = DataLong_Subs_sim_standard, alp=.01)
+
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+```{r}
+summary(agg.simple) 
+```
+
+Now, for innovative performance:
+```{r, include=FALSE}
+example_attgt <- att_gt(yname = "NoPatentsYearGUOtotal", tname = "CurrentYear", idname = "id", gname = "first.treat",
+                        xformla = ~1,data = DataLong_Subs_sim_standard, alp=.01)
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+```{r}
+summary(agg.simple)
+```
+
+#### Moderating effects (standardized)
+Let's start with a traditional did approach to estimate the treatment effects of AI on relatedness:
+```{r, include=FALSE}
+DataLong_Subs_sim_standard$post_treatment <- ifelse(DataLong_Subs_sim_standard$CurrentYear >= DataLong_Subs_sim_standard$first.treat & 
+                                             DataLong_Subs_sim_standard$Group <= DataLong_Subs_sim_standard$CurrentYear, 1, 0)
+
+#Basic DiD model without the moderator for relatedness
+model <- lm(Relatedness_Cos2 ~ treat * post_treatment, data = DataLong_Subs_sim_standard)
+```
+```{r}
+summary(model)
+```
+
+Now innovative performance using a traditional did approach:
+```{r, include=FALSE}
+model <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment, data = DataLong_Subs_sim_standard)
+```
+```{r}
+summary(model)
+```
+
+Finally, we estimate the moderating effects of relatedness on innovative performance considering standardized values. The effect of innovative performance is shown in the variable "treat:post_treatment", whereas the moderating effect of relatedness is shown in variable treat:post_treatment:Relatedness_Cos2.
+```{r, include=FALSE}
+model_moderation <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment * Relatedness_Cos2, data = DataLong_Subs_sim_standard)
+```
+```{r}
+summary(model_moderation) 
+```
+
+## 2.2. Measuring effects across sectors 
+```{r, include=FALSE}
+rm(list=ls())
+RCA_All_Years <-read.csv("Input_code/RCA_All_Years_Simplified.csv", sep = ";", header = TRUE, dec=",") 
+
+mat_tech_rel <-read.csv2("Output_code/Data/Matrix_relatedness_technologies_to_AI.csv")#file we created before measuring the relatedness of AI to other technologies
+mat_tech_rel <- mat_tech_rel[,c("X", "Artificial_Intelligence")] #select the AI and the other technologies columns
+mat_tech_rel <- mat_tech_rel[mat_tech_rel$Artificial_Intelligence >0,] #from 646 to 515 with relatedness above 0
+#let's pick the 5 codes with higher relatedness to AI:
+AI_codes <- mat_tech_rel[mat_tech_rel$Artificial_Intelligence >.06,1] #5 codes
+
+DataLong_Subs_sim <-read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec=",")
+length(unique(DataLong_Subs_sim$id)) #2514 ids 
+
+RCA_All_Years$AI_code <- ifelse(RCA_All_Years$Subclass %in% AI_codes, "AI_code", "Other_codes")
+
+RCA_All_Years %<>% group_by(id,CurrentYear, AI_code) %>% 
+  mutate(AIcodes = sum(RCA)) %>% 
+  ungroup()
+
+RCA_All_Years_treat_AI <- RCA_All_Years[RCA_All_Years$AI_code == "AI_code",]
+RCA_All_Years_treat_AI <- distinct_at(RCA_All_Years_treat_AI, vars(id,CurrentYear), .keep_all = T)
+RCA_All_Years_treat_AI <- RCA_All_Years_treat_AI[,c("id", "CurrentYear", "AIcodes")]
+
+DataLong_Subs_sim <- left_join(DataLong_Subs_sim, RCA_All_Years_treat_AI, by = c("id", "CurrentYear"))
+
+table(is.na(DataLong_Subs_sim$AIcodes)) #13607 F, 21589   T
+#Replace NAs by 0:
+DataLong_Subs_sim$AIcodes[is.na(DataLong_Subs_sim$AIcodes)] <- 0
+table(is.na(DataLong_Subs_sim$AIcodes)) #35196 F
+
+#Insert distance  measure
+CategoriesNace <-read.csv("Output_code/Data/Distance_measure.csv", header=TRUE) 
+CategoriesNace <- CategoriesNace[,c("Nace_4d", "Quartile_top9")]
+names(CategoriesNace) <- c("Nace_4d", "Quartile")
+CategoriesNace$Nace_4d <- as.character(CategoriesNace$Nace_4d)
+DataLong_Subs_sim$Nace_4d <- as.character(DataLong_Subs_sim$Nace_4d)
+
+DataLong_Subs_sim <- left_join(DataLong_Subs_sim,CategoriesNace, by = "Nace_4d")
+
+table(is.na(DataLong_Subs_sim$Quartile)) #33096        F  2100      T
+table(DataLong_Subs_sim$Quartile) #bottom 9380              medium  11004            top 12712      
+
+DataLong_Subs_sim$Quartile[is.na(DataLong_Subs_sim$Quartile)] <- "Bottom"
+table(is.na(DataLong_Subs_sim$Quartile)) #35196 F
+table(DataLong_Subs_sim$Quartile) #bottom 11480             medium  11004            top 12712     
+
+treat_test <-DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
+nontreat_test <-DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
+table(treat_test$Quartile) #bottom 5740    medium   5502    top 6356 
+table(nontreat_test$Quartile) #bottom 5740    medium   5502    top 6356 
+treat_test <- distinct_at(treat_test, vars(id,subclass), .keep_all = T)
+nontreat_test <- distinct_at(nontreat_test, vars(id,subclass), .keep_all = T)
+table(treat_test$Quartile) #bottom 410                    medium  393                      top 454     
+rm(treat_test, nontreat_test)
+
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "Top" & is.na(DataLong_Subs_sim$Quartile) == F,]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "IQR" & is.na(DataLong_Subs_sim$Quartile) == F,]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "Bottom"& is.na(DataLong_Subs_sim$Quartile) == F,]
+
+calculate_ci_and_significance <- function(att, se, group, variable_name) {
+  # Confidence intervals at different significance levels
+  ci_90_low <- att - 1.645 * se  # 90% confidence interval
+  ci_90_high <- att + 1.645 * se
+  
+  ci_95_low <- att - 1.96 * se   # 95% confidence interval
+  ci_95_high <- att + 1.96 * se
+  
+  ci_99_low <- att - 2.576 * se  # 99% confidence interval
+  ci_99_high <- att + 2.576 * se
+  
+  # Determine the highest significance level
+  significance <- ""
+  
+  if (ci_90_low > 0 | ci_90_high < 0) {
+    significance <- "*"
+  }
+  if (ci_95_low > 0 | ci_95_high < 0) {
+    significance <- "**"
+  }
+  if (ci_99_low > 0 | ci_99_high < 0) {
+    significance <- "***"
+  }
+  if (!(ci_90_low > 0 | ci_90_high < 0)) {
+    significance <- "" # No significance if not significant even at 90%
+  }
+  
+  # Create a dataframe to store the results
+  results_df <- data.frame(
+    ATT = att,
+    Std_Error = se,
+    CI_90_Low = ci_90_low,
+    CI_90_High = ci_90_high,
+    CI_95_Low = ci_95_low,
+    CI_95_High = ci_95_high,
+    CI_99_Low = ci_99_low,
+    CI_99_High = ci_99_high,
+    Significance = significance,
+    Group = group,
+    Variable = variable_name
+  )
+  
+  return(results_df)
+}
+
+#define the fixed variables
+tname = "CurrentYear" 
+idname = "id"
+gname = "first.treat"
+
+#define the possible groups
+groups = c("DataLong_Subs_sim_group1","DataLong_Subs_sim_group2","DataLong_Subs_sim_group3")
+
+#define the possible variables
+variables = c("Relatedness_Cos2", #relatedness
+              "NoPatentsYearGUOtotal", #innovative performance
+              "Specializations_Usage", #usage of specializations
+              "HigherUsage", #most used technology
+              "Specializations_Number", #number of specializations
+              "UniqueCodes", #for Sections
+              "UniqueSubclass", #for 4-digit
+              "Herfindahl",
+              "Shannon",
+              "AIcodes", #effect on the 5 codes most related to AI
+              "No_AI_PatentsYearGUOtotal") #effect on number of AI patents
+
+```
+
+### 2.2.1. Calculate the effects Non-standardized
+
+#### 2.2.1.1. Relatedness
+Let's calculate the effects for relatedness first, considering the closest group (Q1):
+```{r, include=FALSE}
+####2.2.1.1.Relatedness----
+#Group 1
+variable_n = 1
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                        yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#summary(agg.simple)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#create the dataset:
+results_df <- calculate_ci_and_significance(att, se, group, variable_name)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
+
+Fig<- ggdid(agg.es, title = "G3) Q1 - Relatedness") + 
+  theme(legend.position="right") +
+  ylab("Estimated effect on relatedness") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values=c("grey70","steelblue3")) + 
+  labs(color   = "Treatment")+ 
+  geom_vline(xintercept = 0, linetype="dotted", 
+             color = "black", size=1, alpha = 0.3)
+```
+```{r}
+summary(agg.simple)
+Fig
+results_df
+```
+
+IQR
+```{r, include=FALSE}
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
+
+Fig<-ggdid(agg.es, title = "G4) IQR - Relatedness") + 
+  theme(legend.position="right") +
+  ylab("Estimated effect on relatedness") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values=c("grey70","green4")) + 
+  labs(color   = "Treatment")+ 
+  geom_vline(xintercept = 0, linetype="dotted", 
+             color = "black", size=1, alpha = 0.3)
+```
+```{r}
+summary(agg.simple)
+results_df
+Fig
+```
+
+Q4
+```{r, include=FALSE}
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
+Fig<- ggdid(agg.es, title = "G5) Q4 - Relatedness") + 
+  theme(legend.position="right") +
+  ylab("Estimated effect on relatedness") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values=c("grey70","red4")) + 
+  labs(color   = "Treatment")+ 
+  geom_vline(xintercept = 0, linetype="dotted", 
+             color = "black", size=1, alpha = 0.3)
+```
+```{r}
+summary(agg.simple)
+results_df
+Fig
+```
+
+#### 2.2.1.2. Innovative performance
+Let's do the same for innovative performance, starting with the closest group.
+Q1
+```{r, include=FALSE}
+#Group 1
+variable_n = 2
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) 
+
+Fig<- ggdid(agg.es, title = "G6) Q1 - Innovative performance") + 
+  theme(legend.position="right") +
+  ylab("Estimated effect on number of patents") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values=c("grey70","steelblue3")) + 
+  labs(color   = "Treatment")+ 
+  geom_vline(xintercept = 0, linetype="dotted", 
+             color = "black", size=1, alpha = 0.3)
+```
+```{r}
+summary(agg.simple)
+results_df
+Fig
+```
+
+For the interquartile range (IQR):
+```{r, include=FALSE}
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+#Dynamic events
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
+
+Fig<-ggdid(agg.es, title = "G7) IQR - Innovative performance") + 
+  theme(legend.position="right") +
+  ylab("Estimated effect on number of patents") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values=c("grey70","green4")) + 
+  labs(color   = "Treatment")+ 
+  geom_vline(xintercept = 0, linetype="dotted", 
+             color = "black", size=1, alpha = 0.3)
+```
+```{r}
+summary(agg.simple)
+results_df
+Fig
+```
+
+For the lowest quartile (Q4)
+```{r, include=FALSE}
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
+
+Fig<- ggdid(agg.es, title = "G8) Q4 - Innovative performance") + 
+  theme(legend.position="right") +
+  ylab("Estimated effect on number of patents") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values=c("grey70","red4")) + 
+  labs(color   = "Treatment")+ 
+  geom_vline(xintercept = 0, linetype="dotted", 
+             color = "black", size=1, alpha = 0.3)
+
+```
+```{r}
+summary(agg.simple)
+results_df
+Fig
+```
+
+Now we just measure all the effects of the remaining variables linked to dynamic capabilities, and put all of them together in a single table.
+```{r, include=FALSE}
+####2.2.1.3.Usage of specializations----
+#Group 1
+variable_n = 3
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.4.Most used technology----
+#Group 1
+variable_n = 4
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.5.Number of specializations----
+#Group 1
+variable_n = 5
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.6.Number of sections ----
+#Group 1
+variable_n = 6
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.7.Number of subclasses----
+#Group 1
+variable_n = 7
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.8.Herfindahl index----
+#Group 1
+variable_n = 8
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.9.Shannon index----
+#Group 1
+variable_n = 9
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.10.Number AI codes----
+#Group 1
+variable_n = 10
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.1.18. Number of AI patents----
+#Group 1
+variable_n = 11
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #
+ggdid(agg.es) 
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #
+ggdid(agg.es) 
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+```
+```{r}
+results_df
+```
+
+These results are saved in the file named **"Results_Effects_non_stand.xlsx"**
+
+### 2.2.2. Calculate the effects Standardized
+Let's do the same for standardized effects, estimating all the effects at once and saving them into a table:
+```{r, include=FALSE}
+#standardize per group
+DataLong_Subs_sim_group1[,c("Relatedness_Cos2", "Specializations_Usage", "HigherUsage","Specializations_Number",
+                            "Herfindahl", "Shannon", "NoPatentsYearGUOtotal", "UniqueCodes", "UniqueSubclass", "AIcodes", "No_AI_PatentsYearGUOtotal")] <- 
+  scale(DataLong_Subs_sim_group1[,c("Relatedness_Cos2", "Specializations_Usage", "HigherUsage","Specializations_Number",
+                                    "Herfindahl", "Shannon", "NoPatentsYearGUOtotal", "UniqueCodes", "UniqueSubclass", "AIcodes", "No_AI_PatentsYearGUOtotal")])
+
+DataLong_Subs_sim_group2[,c("Relatedness_Cos2", "Specializations_Usage", "HigherUsage","Specializations_Number",
+                            "Herfindahl", "Shannon", "NoPatentsYearGUOtotal", "UniqueCodes", "UniqueSubclass", "AIcodes", "No_AI_PatentsYearGUOtotal")] <- 
+  scale(DataLong_Subs_sim_group2[,c("Relatedness_Cos2", "Specializations_Usage", "HigherUsage","Specializations_Number",
+                                    "Herfindahl", "Shannon", "NoPatentsYearGUOtotal", "UniqueCodes", "UniqueSubclass", "AIcodes", "No_AI_PatentsYearGUOtotal")])
+
+DataLong_Subs_sim_group3[,c("Relatedness_Cos2", "Specializations_Usage", "HigherUsage","Specializations_Number",
+                            "Herfindahl", "Shannon", "NoPatentsYearGUOtotal", "UniqueCodes", "UniqueSubclass", "AIcodes", "No_AI_PatentsYearGUOtotal")] <- 
+  scale(DataLong_Subs_sim_group3[,c("Relatedness_Cos2", "Specializations_Usage", "HigherUsage","Specializations_Number",
+                                    "Herfindahl", "Shannon", "NoPatentsYearGUOtotal", "UniqueCodes", "UniqueSubclass", "AIcodes", "No_AI_PatentsYearGUOtotal")])
+
+####2.2.2.1.Relatedness----
+#Group 1
+variable_n = 1
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#create the dataset:
+results_df <- calculate_ci_and_significance(att, se, group, variable_name)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #
+ggdid(agg.es) 
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.0719        0.0448    -0.0159      0.1598 
+ggdid(agg.es) 
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.108        0.0431     0.0235      0.1925 *
+ggdid(agg.es) 
+
+####2.2.2.2.Innovative performance----
+#Group 1
+variable_n = 2
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.2826        0.1538    -0.0189      0.5841
+ggdid(agg.es) 
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) 
+ggdid(agg.es) 
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #0.0597        0.0357    -0.0103      0.1297
+ggdid(agg.es) 
+
+####2.2.2.3.Usage of specializations----
+#Group 1
+variable_n = 3
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.4.Most used technology----
+#Group 1
+variable_n = 4
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.5.Number of specializations----
+#Group 1
+variable_n = 5
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.6.Number of sections ----
+#Group 1
+variable_n = 6
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.7.Number of subclasses----
+#Group 1
+variable_n = 7
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.8.Herfindahl index----
+#Group 1
+variable_n = 8
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.9.Shannon index----
+#Group 1
+variable_n = 9
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.10.Number AI codes----
+#Group 1
+variable_n = 10
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+####2.2.2.11. Number of AI patents----
+#Group 1
+variable_n = 11
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #
+ggdid(agg.es) 
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#dynamic events:
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) #
+ggdid(agg.es) 
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          # Average Treatment Effect on the Treated (ATT)
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+```
+```{r}
+results_df
+```
+
+These results are saved in a file named **"Results_Effects_stand.xlsx"**
+
+# 3. Descriptive statistics and correlations
+Finally, let's recreate the descriptive statistics shown on the paper.
+```{r, include=FALSE}
+rm(list=ls())
+FinalDataset <- read.csv("Input_code/Data_all_years_all_MNEs.csv", sep = ";", header = TRUE, dec=",")#[,c(-1)] #doesn't work, no significance
+FinalDataset$Nace_4d <- as.character(FinalDataset$Nace_4d)
+CategoriesNace <-read.csv("Output_code/Data/Distance_measure.csv", header=TRUE)
+CategoriesNace <- CategoriesNace[,c("Nace_4d", "Quartile_top9")]
+names(CategoriesNace) <- c("Nace_4d", "Quartile")
+CategoriesNace$Nace_4d <- as.character(CategoriesNace$Nace_4d)
+
+FinalDataset <- left_join(FinalDataset,CategoriesNace, by = "Nace_4d")
+table(is.na(FinalDataset$Quartile)) #476620 F; 62820 T
+table(FinalDataset$Quartile) #bottom 213880  medium  175220  top 87520     
+
+FinalDataset$Quartile[is.na(FinalDataset$Quartile)] <- "bottom"
+table(is.na(FinalDataset$Quartile)) #539440  
+table(FinalDataset$Quartile) #bottom 276700     medium 175220       top 87520 
+```
+
+## 3.1. Statistics All data
+Considering the whole dataset, we have:
+```{r, include=FALSE}
+FinalDataset_2019 <- FinalDataset[FinalDataset$CurrentYear== 2019,]
+FinalDataset_summary <- FinalDataset_2019[,c("Relatedness_Cos2", "NoSubs_calculated", "NoSubsWithPatents", "Size_class", 
+                                        "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal","No_employees_Year",
+                                        "Date_Incorporation", "Specializations_Usage", "HigherUsage", "Specializations_Number",
+                                        "Herfindahl", "Shannon", "Quartile",
+                                        "UniqueCodes", "UniqueSubclass")]
+```
+```{r}
+st(FinalDataset_summary, group = "Size_class",  group.test = TRUE,
+                 summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+st(FinalDataset_summary, group = "Quartile",  group.test = TRUE,
+               summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+```
+
+These last two tables are saved as **"Descriptive_statistics_all_MNEs_by_Size_class.csv"** and **"Descriptive_statistics_all_MNEs_by_Quartile.csv"**, respectively.
+
+## 3.2. Statistics matched data
+Considering only matched companies, we have:
+```{r, include=FALSE}
+rm(Size_class, Quartile, CategoriesNace)
+DataLong_Subs_2006 <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec=",") #
+#get the mean of the last 5 years
+DataLong_Subs_2006 %<>% group_by(Company, subclass) %>% 
+  mutate(across(NoPatentsYearGUOtotal,
+                .fns = list(avg = ~ rollmean(.,k=5,fill=NA,align = 'center'))))
+
+#new: Relatedness_lagged 
+DataLong_Subs_2006 %<>% group_by(Company, subclass) %>% 
+  mutate(NoPatentsYearGUOtotal_avg_fixed = lag(NoPatentsYearGUOtotal_avg)) %>% 
+  mutate(Relatedness_lagged = lag(Relatedness_Cos2)) 
+
+DataLong_Subs_2006 <- subset(DataLong_Subs_2006, select = -c(NoPatentsYearGUOtotal_avg) )
+For_Match <- FinalDataset[,c("Company","CurrentYear","Quartile", "HigherUsage","Specializations_Usage", "Specializations_Number","Shannon","Herfindahl","NoSubs_calculated", "NoSubsWithPatents", "No_employees_Year",
+                             "UniqueCodes", "UniqueSubclass")] #new 
+DataLong_Subs_2006 <- left_join(DataLong_Subs_2006, For_Match, by=c("Company","CurrentYear"),na_matches="never")
+rm(For_Match)
+
+DataLong_Subs_2006 %<>% group_by(Company, subclass) %>% 
+  mutate(N_specializations_lagged = lag(Specializations_Number.x)) 
+
+DataLong_Subs_2006_summary <- DataLong_Subs_2006[,c("Relatedness_Cos2", "Size_class", "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal",
+                                                    "Company","treat","Date_Incorporation", "Group", "CurrentYear", 
+                                                    "NoPatentsYearGUOtotal_avg_fixed", "Nace_4d", "YearFirstAdoption",
+                                                    "HigherUsage.x","Specializations_Usage.x", "Specializations_Number.x","Shannon.x","Herfindahl.x","NoSubs_calculated", "NoSubsWithPatents",
+                                                    "Quartile", "No_employees_Year",
+                                                    "Relatedness_lagged", "N_specializations_lagged", 
+                                                    "UniqueCodes.x", "UniqueSubclass.x" )] 
+
+DataLong_Subs_2006_summary <- DataLong_Subs_2006_summary[DataLong_Subs_2006_summary$Group == DataLong_Subs_2006_summary$CurrentYear,]
+DataLong_Subs_2006_summary <- subset(DataLong_Subs_2006_summary, select = -c(Company, Group,  YearFirstAdoption, Nace_4d) )#, "CurrentYear"
+```
+```{r}
+st(DataLong_Subs_2006_summary,  group = "treat",  group.test = TRUE,
+              summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+st(DataLong_Subs_2006_summary,  group = "Quartile",  group.test = TRUE,
+               summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+st(DataLong_Subs_2006_summary,  group = "Size_class",  group.test = TRUE,
+                 summ=c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+```
+
+The last three tables are saved under the names **"Descriptive_statistics_matched_companies_Treated.csv"**, **"Descriptive_statistics_matched_companies_Quartile.csv"**, and **"Descriptive_statistics_matched_companies_Size_class.csv"**, respectively.
+
+## 3.3. Analyse correlations
+Finally, let's recreate the plots of correlations. Starting with the matched sample:
+```{r, include=FALSE}
+data_normalized <- DataLong_Subs_2006_summary[,c("Relatedness_Cos2", "Specializations_Number.x",
+                                                 "Date_Incorporation","No_AI_PatentsYearGUOtotal", "NoPatentsYearGUOtotal")] 
+
+names(data_normalized) <- c("Relatedness", "N. of specializations","Date of incorporation", "N. of AI patents","N. of patents") 
+data_normalized <- scale(data_normalized)
+corr_matrix <- cor(na.omit(data_normalized))
+```
+```{r, echo=FALSE}
+ggcorrplot(corr_matrix, legend.title = "Correlation", hc.order=F,lab = TRUE)
+```
+
+And now for the whole dataset:
+
+```{r, include=FALSE}
+data_normalized <- FinalDataset_2019[,c("Relatedness_Cos2", "Specializations_Number",
+                                   "Date_Incorporation","No_AI_PatentsYearGUOtotal", "NoPatentsYearGUOtotal")] 
+
+names(data_normalized) <- c("Relatedness", "N. of specializations","Date of incorporation", "N. of AI patents","N. of patents") 
+data_normalized <- scale(data_normalized)
+corr_matrix <- cor(na.omit(data_normalized))
+```
+```{r, echo=FALSE}
+ggcorrplot(corr_matrix, legend.title = "Correlation", hc.order=F,lab = TRUE)
+```
