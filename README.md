@@ -1,40 +1,105 @@
-# Estimating the effects of introducing an AI innovation for MNEs
+# Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs
 
-This repository contains files that can be used to reproduce the analysis presented in the paper entitled **"Relate to Innovate: The Impact of Artificial Intelligence on Multinational Enterprises’ Innovative Activities"**. It includes an R code that can be used to produce the analysis (named *"Effects_AI_adoption"*), one Rmarkdown file (named *"index_markdown"*), which is used to generate an [html file](https://relatedness-in-mnes.netlify.app/) (*index*) that allows visualizing the reproduction of the main parts of the code, and twomain folders, named "Input_code" and *"Output_code"*.
+This repository contains the R code and data to reproduce the analysis and figures for the paper entitled "Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs". 
+To facilitate the overall understanding of the code, a visualization of the main estimations and descriptvies presented in the paper is available in an [html file](https://relatedness-in-mnes.netlify.app/) (named *index.html* in the repository).
+## Overview
 
-The folder named **"Input_code"** is used as input to reproduce all of the estimations presented in the paper. The files contained in this folder look like this:
+This research investigates why firms show significant differences in the returns they get from investing in Artificial Intelligence. The paper draws on Absorptive Capacity (ACAP) theory to explore the firm-level mechanisms that separate successful AI innovators from the rest.
 
-![image](https://github.com/user-attachments/assets/2f2e0fad-b9dc-4b45-ab11-7b680308e5f9)
+Using a matched-pair, Difference-in-Differences (DiD) design on patent data from over 30,000 Multinational Enterprises (MNEs), the analysis reveals:
+* Introducing an AI innovation increases the **knowledge relatedness** of a firm's subsequent patents and boosts its overall innovative output.
+* These gains are highly **path-dependent**, with effects being about three times stronger for firms already technologically close to AI.
+* Crucially, positive outcomes depend on overcoming a **"conversion challenge"**—significant gains are almost exclusively seen in firms that secure a **granted** AI patent, not just an application.
+* Benefits do not extend to firms that merely **acquire** AI patents instead of developing them internally, highlighting the importance of the internal learning process.
 
-In more detail, the content of each of these three files is:
+This repository provides the necessary resources to replicate these findings.
 
-  - Data_all_years_all_MNEs.csv → This file contains panel data that is used to create the descriptive statistics presented in the paper. This includes data on more than 26,000 MNEs for the variables considered.
-  
-  - Matched_companies.csv → This file contains panel data on the more than 1,000 MNEs that were matched to counterparts from with same or similar "Average number of patents owned in the 5 years before treatment", "Number of patents in the year of treatment",   "Firm age", Industry (NACE 4-digit level), and Size. The matching allows that untreated companies are matched more than 1 time to treatment companies, if they are the most similar ones to these from the available companies.
-  
-  - RCA_All_Years_Simplified.csv → This file contains the binary specializations of all matched companies in all of the possible 4-digit IPC codes. It is used to calculate variables linked to number of specializations.
+---
 
-Besides these files, a subfolder named *"Big_files_ignore"* is also contained in this folder, but set to be ignored. This hidden folder contains data about all patents and companies linked to the MNE dataset. The folder is hidden due to Orbis intellectual property rights. These files are used in the first part of the code, entitled *"Measuring technological distance"*. If you want to reproduce the code but don't have access to these files, please jump this first part in the code and start from the section *"Measuring effects"*
+## Repository Structure
 
-All files created through executing the code are saved in **Output_code**. This folder has two subfolders, one with Figures and one with Data. 
+The repository is organized as follows:
 
-The *"Figures"* folder should look like this after the reproduction of the code:
+```
+/
+├── Input_code/
+│   ├── Matched_companies.csv
+│   ├── Matched_companies_extra_data.csv
+│   ├── RCA_All_Years_Simplified.csv
+│   ├── Table 3.xlsx
+│   ├── nace_rev2.csv
+│   └── Big_files_ignore/ (Directory for large source files not tracked by Git)
+│
+├── Output_code/
+│   ├── Data/ (Contains generated tables and intermediate datasets)
+│   └── Figures/ (Contains all generated plots and figures)
+│
+└── Effects_AI_adoption.R     # The main R script for running the entire analysis
+└── Matching_treated_and_untreated.R
+└── index.Rmd
+└── index.html
+└── README.md                   # This file
+```
+---
 
-![image](https://github.com/user-attachments/assets/31561c8e-ab31-4ae4-beff-047670b88623)
+## Methodological Workflow
 
+The main script, `Effects_AI_adoption.R`, executes the entire empirical analysis in a sequence of steps. Below is an overview of the workflow and how it corresponds to the paper's findings.
 
-The *"Data"* folder should look like this after the reproduction of the code: 
+1.  **Estimating Sectoral Distance to AI:** The script first calculates the technological relatedness between all technology fields (IPC codes) and AI to establish a baseline proximity matrix. It then uses this matrix to measure how specialized each economic sector (NACE code) is in core AI-related technologies, creating the sectoral distance metric used to categorize firms into quartiles (Q1, IQR, Q4).
 
-![image](https://github.com/user-attachments/assets/f363b4e5-2d4b-443e-aed9-81b5c3c662d1)
+2.  **Measuring Overall Effects (H1, H2):** The script implements a staggered Difference-in-Differences (DiD) model to estimate the average treatment effect of introducing a first AI innovation on a firm's knowledge relatedness and innovative performance (Table 1). It also includes a two-way fixed effects (TWFE) model to test the moderating role of knowledge relatedness.
 
-Particularly, the 5 files starting with "Descriptive_statistics" in the name are created in the third section of the code (*Descriptive statistics and correlations*). The remaining 4 files are:
+3.  **Analyzing Path Dependency (H3, H4):** The analysis is then segmented by sectoral proximity quartiles (Q1, IQR, Q4) to test how a firm's initial technological position conditions the innovation gains (Table 2).
 
-  - Distance_NACE_sectors_to_AI.csv → This file is generated in the subsection *"1.2.Technological distance of NACE sectors to AI"* of the code. It contains the estimated distance of every NACE sector (with more than 500 patents) to AI.
-  
-  - Matrix_relatedness_technologies_to_AI.csv → This file is generated in the subsection *"1.1.Technological distance of 4-digit IPC codes to AI"* of the code. It contains the estimated distance of every 4-digit IPC technology to AI.
-  
-  - Results_Effects_non_stand.xlsx → This file is generated in the subsection *"2.2.2.Calculate the effects Standardized"* of the code. It estimates the **standardized** effects considering the three considered groups for all variables.
-  
-  - Results_Effects_stand.xlsx → This file is generated in the subsection *"2.2.1.Calculate the effects Non-standardized"* of the code. It estimates the **non-standardized** effects considering the three considered groups for all variables.
+4.  **The "Conversion Test" (H5, H6):** This is a key part of the analysis where the treatment group is split between firms that only applied for an AI patent (Potential ACAP) and those that successfully had one or more granted (Realized ACAP).This analysis reveals the stark divergence in outcomes (Figure 3, Tables 3 & 4).
 
+5.  **Antecedents of Success:** A dynamic matched-pair analysis compares successful vs. unsuccessful AI innovators year-by-year to map the causal timeline of their divergence, identifying a pre-existing "conversion capability" (Table 5).
 
+6.  **Robustness Check (Acquisition Effects):** The script runs a final DiD analysis on a group of firms that only acquired AI patents (without internal development) to confirm that the observed benefits are driven by internal learning, not just ownership (Table 6).
+
+---
+
+## System Requirements & Setup
+
+* **R version:** 4.0.0 or newer.
+* **R Packages:** The script requires the following packages. You can install them all by running the command below in your R console.
+
+```R
+install.packages(c("data.table", "readxl", "tidyverse", "magrittr", "EconGeo", "psych", "Metrics", "did", "openxlsx", "zoo", "vtable", "ggcorrplot", "janitor"))
+```
+
+## How to Run the Analysis
+
+1.  **Clone the Repository:**
+    ```bash
+    git clone [https://github.com/matheusleusin/MNEs_and_Artificial_Intelligence.git](https://github.com/matheusleusin/MNEs_and_Artificial_Intelligence.git)
+    cd MNEs_and_Artificial_Intelligence
+    ```
+
+2.  **Prepare the Data:**
+    * The core matched panel dataset (`Matched_companies.csv`) is provided in the `Input_code/` directory.
+    * **Important:** The raw, large-scale datasets used for the initial matching procedure (e.g., `All_patents.csv`, `DataCompanies1.xlsx`, etc.) are not included in this repository due to their size. The script `Effects_AI_adoption.R` references these files from a local directory named `Input_code/Big_files_ignore/`. The methodology for constructing the full dataset is detailed in a separate repository: [Method-to-create-a-dataset-of-MNEs-ownership-structures](https://github.com/matheusleusin/Method-to-create-a-dataset-of-MNEs-ownership-structures).
+
+3.  **Execute the Script:**
+    * Open the `Effects_AI_adoption.R` script in R or RStudio.
+    * Set the working directory to the script's location using `setwd()`. The script is designed to do this automatically if you are using RStudio (`setwd(dirname(rstudioapi::getActiveDocumentContext()$path))`).
+    * Run the script from top to bottom. The script will automatically generate all tables and figures in the `Output_code/` directory.
+
+---
+
+## Description of Key Files
+
+### `Input_code/` Directory
+This folder contains the pre-processed data required to run the main DiD analyses.
+
+* **`Matched_companies.csv`**: The final, matched panel dataset created by the genetic matching algorithm. Each row represents a firm-year observation. It contains the primary variables for innovative performance, knowledge relatedness, and the treatment indicators (`treat`, `first.treat`).
+* **`Matched_companies_extra_data.csv`**: A supplementary file containing additional firm-level variables (e.g., patent quality metrics, R&D expenses) that are merged into the main panel for the analyses in Sections 4.3 and 4.4.
+
+### `Output_code/` Directory
+This folder is where all outputs from the R script are saved. It is divided into two subdirectories.
+
+* **`Data/`**: Contains all empirical results in `.csv` or `.xlsx` format. For example, `Table_2_absolute.xlsx` contains the raw numerical estimates that were used to create Table 2 in the manuscript. This allows for direct verification of the reported coefficients and standard errors.
+* **`Figures/`**: Contains all figures and plots generated by the script, such as `Fig3_Table3.jpg` and the dynamic treatment effect plots for the appendix (e.g., `Fig_appendix_g1_Relatedness_all.jpg`).
+
+---
