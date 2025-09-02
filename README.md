@@ -23,9 +23,9 @@ The repository is organized as follows:
 ```
 /
 ├── Input_code/
-│   ├── Data_all_years_all_MNEs.csv # This file contains panel data that is used to create the descriptive statistics presented in the paper. This includes data on more than 26,000 MNEs with available data for the variables considered.
-│   ├── Matched_companies.csv # These is the main group of matched companies (i.e., MNEs that introduced an AI innovation vs MNEs that didn't introduce it, but are from have a similar patent history and the exact same age, industry, and size).
-│   ├── Matched_companies_extra_data.csv # This is data with additional variables used from Table 3 and onwards
+│   ├── Data_all_MNEs_2019.csv # This file contains the data used to create the descriptive statistics presented in the paper (Appendix F). This includes data on more than 26,000 MNEs with available data for the variables considered in the year 2019.
+│   ├── Matched_companies.csv # This is the main group of matched companies (i.e., MNEs that introduced an AI innovation vs MNEs that didn't introduce it, but are from have a similar patent history and the exact same age, industry, and size).
+│   ├── Matched_companies_extra_data.csv # This data has additional variables used to estimate effects from Tables 3, 4, and 5.
 │   ├── nace_rev2.csv #NACE information
 │   ├── RCA_All_Years_Simplified.csv #Calculated specializations in AI-related codes
 │   ├── Table 3.xlsx #Table used to generate Figure 3
