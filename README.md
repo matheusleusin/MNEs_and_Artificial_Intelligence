@@ -47,7 +47,7 @@ The repository is organized as follows:
 
 The main script, `Effects_AI_adoption.R`, executes the entire empirical analysis in a sequence of steps. Below is an overview of the workflow and how it corresponds to the paper's findings.
 
-1.  **Estimating Sectoral Distance to AI:** The script first calculates the technological relatedness between all technology fields (IPC codes) and AI to establish a baseline proximity matrix. It then uses this matrix to measure how specialized each economic sector (NACE code) is in core AI-related technologies, creating the sectoral distance metric used to categorize firms into quartiles (Q1, IQR, Q4).
+1.  **Estimating Sectoral Distance to AI:** The script first calculates the technological relatedness between all technology fields (IPC codes) and AI to establish which technologies are more related to it. It then uses the 9 technologies most related to AI as the basis to measure which economic sector (NACE code) hold the higher share of their specializations in core AI-related technologies, creating the sectoral distance metric used to categorize firms into quartiles (Q1, IQR, Q4).
 
 2.  **Measuring Overall Effects (H1, H2):** The script implements a staggered Difference-in-Differences (DiD) model to estimate the average treatment effect of introducing a first AI innovation on a firm's knowledge relatedness and innovative performance (Table 1). It also includes a two-way fixed effects (TWFE) model to test the moderating role of knowledge relatedness.
 
@@ -80,7 +80,7 @@ install.packages(c("data.table", "readxl", "tidyverse", "magrittr", "EconGeo", "
 
 2.  **Prepare the Data:**
     * The core matched panel dataset (`Matched_companies.csv`) is provided in the `Input_code/` directory.
-    * **Important:** The raw, large-scale datasets used for the initial matching procedure (e.g., `All_patents.csv`, `DataCompanies1.xlsx`, etc.) are not included in this repository due to their size. The script `Effects_AI_adoption.R` references these files from a local directory named `Input_code/Big_files_ignore/`. The methodology for constructing the full dataset is detailed in a separate repository: [Method-to-create-a-dataset-of-MNEs-ownership-structures](https://github.com/matheusleusin/Method-to-create-a-dataset-of-MNEs-ownership-structures).
+    * **Important:** The raw, large-scale datasets used for the initial matching procedure (e.g., `All_patents.csv`, `DataCompanies1.xlsx`, etc.) are not included in this repository due to their size. The script `Effects_AI_adoption.R` references these files from a local directory named `Input_code/Big_files_ignore/`. The methodology for constructing the full dataset is detailed in a separate repository, anonymized for the time being to avoid any conflicts in the peer-review process of the paper.
 
 3.  **Execute the Script:**
     * Open the `Effects_AI_adoption.R` script in R or RStudio.
