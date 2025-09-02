@@ -1,6 +1,6 @@
-# Performance Pending: The AI Conversion Challenge and the Power of Knowledge Related-ness in MNEs
+# Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs
 
-This repository contains the R code and data to reproduce the analysis and figures for the paper, "Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs."
+This repository contains the R code and data to reproduce the analysis and figures for the paper "Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs".
 
 For a user-friendly overview of the code and the main estimations, please see the supplementary **[HTML summary file](https://relatedness-in-mnes.netlify.app/)** (also available as `index.html` in this repository).
 
@@ -11,7 +11,7 @@ This study investigates why firms realize vastly different returns from their in
 Using a matched-pair, Difference-in-Differences (DiD) design on patent data from over 30,000 Multinational Enterprises (MNEs), the analysis reveals:
 * Introducing an AI innovation increases the **knowledge relatedness** of a firm's subsequent patents and boosts its overall innovative output.
 * These gains are highly **path-dependent**, with effects being about three times stronger for firms already technologically close to AI.
-* Crucially, positive outcomes depend on overcoming a **"conversion challenge"**—significant gains accrue almost exclusively to firms that secure a **granted** AI patent, not just an application.
+* Crucially, positive outcomes depend on overcoming a **"conversion challenge"** — significant gains accrue almost exclusively to firms that secure a **granted** AI patent, not just an application.
 * Benefits do not extend to firms that merely **acquire** AI patents instead of developing them internally, highlighting the importance of the internal learning process.
 
 This repository provides the necessary resources to replicate these findings.
@@ -71,7 +71,15 @@ The main script, `Effects_AI_adoption.R`, executes the entire empirical analysis
 install.packages(c("data.table", "readxl", "tidyverse", "magrittr", "EconGeo", "psych", "Metrics", "did", "openxlsx", "zoo", "vtable", "ggcorrplot", "janitor"))
 ```
 
-## How to Run the Analysis
+## Reproducibility and Instructions
+
+#### Important Note on Reproducibility
+
+Not all scripts in this repository are fully reproducible with the public-facing data.
+* **Non-Reproducible Steps:** The initial data processing steps — specifically the `Matching_treated_and_untreated.R` script and **Section 1 (`#1.Estimating technological distance...`)** of the `Effects_AI_adoption.R` script — are not directly executable. They rely on raw source datasets (e.g., `All_patents.csv`, `DataCompanies1.xlsx`) which are not included here due to their **large size** and **proprietary nature**, as the data is licensed from Orbis and is protected by intellectual property rights. These scripts are provided for methodological transparency only.
+* **Reproducible Analysis:** The core empirical analysis, which begins at **Section 2 (`#2.Measuring effects-----`)** of the `Effects_AI_adoption.R` script, **is fully reproducible** using the provided `Matched_companies.csv` and other files from the `Input_code/` directory.
+
+#### How to Run the Analysis
 
 1.  **Clone the Repository:**
     ```bash
@@ -79,15 +87,12 @@ install.packages(c("data.table", "readxl", "tidyverse", "magrittr", "EconGeo", "
     cd MNEs_and_Artificial_Intelligence
     ```
 
-2.  **Prepare the Data:**
-    * The core matched panel dataset (`Matched_companies.csv`) is provided in the `Input_code/` directory and is sufficient for running the main analysis script (`Effects_AI_adoption.R`).
-    * **Important:** The initial data construction and matching steps—specifically the `Matching_treated_and_untreated.R` script—cannot be fully reproduced with the files in this public repository. This is because the raw source datasets (e.g., `All_patents.csv`, `DataCompanies1.xlsx`) are not included due to their **large size** and **proprietary nature**, as the data is licensed from Orbis and protected by intellectual property rights. The `Matching_treated_and_untreated.R` script is therefore provided for methodological transparency but is not directly executable.
-
-3.  **Execute the Script:**
+2.  **Open the Script:**
     * Open `Effects_AI_adoption.R` in R or RStudio.
-    * The script is designed to set the working directory automatically if you are using RStudio (`setwd(dirname(rstudioapi::getActiveDocumentContext()$path))`). Otherwise, set the working directory manually to the script's location.
-    * Run the script from top to bottom. It will automatically generate all tables and figures in the `Output_code/` directory.
 
+3.  **Execute the Reproducible Sections:**
+    * The script is designed to set the working directory automatically if you are using RStudio (`setwd(dirname(rstudioapi::getActiveDocumentContext()$path))`). Otherwise, set the working directory manually to the script's location.
+    * Run the script starting from **Section 2 (`#2.Measuring effects-----`)** to the end. This will automatically generate all tables and figures in the `Output_code/` directory based on the provided matched data.
 ---
 
 ## Description of Key Files
