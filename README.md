@@ -1,4 +1,4 @@
-# Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs
+# Performance Pending: The AI Conversion Challenge and the Power of Knowledge Related-ness in MNEs
 
 This repository contains the R code and data to reproduce the analysis and figures for the paper, "Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs."
 
@@ -80,8 +80,8 @@ install.packages(c("data.table", "readxl", "tidyverse", "magrittr", "EconGeo", "
     ```
 
 2.  **Prepare the Data:**
-    * The core matched panel dataset (`Matched_companies.csv`) is provided in the `Input_code/` directory.
-    * **Important:** The raw, large-scale datasets used for the initial matching procedure (e.g., `All_patents.csv`, `DataCompanies1.xlsx`) are not included in this repository due to their size and proprietary nature. The script `Effects_AI_adoption.R` is configured to read these files from a local directory named `Input_code/Big_files_ignore/`. The methodology for constructing the full dataset is detailed in a separate, anonymized repository to ensure the integrity of the peer-review process.
+    * The core matched panel dataset (`Matched_companies.csv`) is provided in the `Input_code/` directory and is sufficient for running the main analysis script (`Effects_AI_adoption.R`).
+    * **Important:** The initial data construction and matching steps—specifically the `Matching_treated_and_untreated.R` script—cannot be fully reproduced with the files in this public repository. This is because the raw source datasets (e.g., `All_patents.csv`, `DataCompanies1.xlsx`) are not included due to their **large size** and **proprietary nature**, as the data is licensed from Orbis and protected by intellectual property rights. The `Matching_treated_and_untreated.R` script is therefore provided for methodological transparency but is not directly executable.
 
 3.  **Execute the Script:**
     * Open `Effects_AI_adoption.R` in R or RStudio.
