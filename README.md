@@ -98,7 +98,7 @@ install.packages(c("data.table", "readxl", "tidyverse", "magrittr", "EconGeo", "
 
 #### Important Note on Reproducibility
 
-Not all scripts in this repository are fully reproducible with the public-facing data.
+Not all scripts in this repository are fully reproducible with the publically available data.
 * **Non-Reproducible Steps:** The initial data processing steps — specifically the `Matching_treated_and_untreated.R` script and **Section 1 (`#1.Estimating technological distance...`)** of the `Effects_AI_adoption.R` script — are not directly executable. They rely on raw source datasets (e.g., `All_patents.csv`, `DataCompanies1.xlsx`) which are not included here due to their **large size** and **proprietary nature**, as the data is licensed from Orbis and is protected by intellectual property rights. These scripts are provided for methodological transparency only.
 * **Reproducible Analysis:** The core empirical analysis, which begins at **Section 2 (`#2.Measuring effects-----`)** of the `Effects_AI_adoption.R` script, **is fully reproducible** using the provided `Matched_companies.csv` and other files from the `Input_code/` directory.
 
