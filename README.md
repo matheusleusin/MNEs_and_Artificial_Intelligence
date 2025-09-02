@@ -1,7 +1,7 @@
 # Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs
 
 This repository contains the R code and data to reproduce the analysis and figures for the paper entitled "Performance Pending: The AI Conversion Challenge and the Power of Knowledge Relatedness in MNEs". 
-To facilitate the overall understanding of the code, a visualization of the main estimations and descriptvies presented in the paper is available in an [html file](https://relatedness-in-mnes.netlify.app/) (named *index.html* in the repository).
+To facilitate the overall understanding of the code, a visualization of the main estimations and descriptvies presented in the paper is mande available in an [html file](https://relatedness-in-mnes.netlify.app/) (named *index.html* in the repository).
 ## Overview
 
 This research investigates why firms show significant differences in the returns they get from investing in Artificial Intelligence. The paper draws on Absorptive Capacity (ACAP) theory to explore the firm-level mechanisms that separate successful AI innovators from the rest.
