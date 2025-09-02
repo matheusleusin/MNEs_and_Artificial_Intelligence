@@ -3848,23 +3848,22 @@ write.csv2(transposed_df, file = "Output_code/Data/Descriptive_statistics_Append
 #3.Descriptive statistics and correlations-----
 ##3.1.Statistics All data------
 rm(list=ls())
-FinalDataset <- read.csv("Input_code/Data_all_years_all_MNEs.csv", sep = ";", header = TRUE, dec=",")#[,c(-1)] #doesn't work, no significance
+FinalDataset <- read.csv("Input_code/Data_all_MNEs_2019.csv", sep = ";", header = TRUE, dec=",")#[,c(-1)] #doesn't work, no significance
 FinalDataset$Nace_4d <- as.character(FinalDataset$Nace_4d)
 
 CategoriesNace <-read.csv("Output_code/Data/Distance_measure.csv", header = TRUE)
 CategoriesNace$Nace_4d <-as.character(CategoriesNace$Nace_4d)
 
 FinalDataset <- left_join(FinalDataset,CategoriesNace, by = "Nace_4d")
-table(is.na(FinalDataset$Quartile)) #539160     F; 280  T
-table(FinalDataset$Quartile) #Bottom 186320    IQR 239220    Top    113620 
+table(is.na(FinalDataset$Quartile)) #26958     F; 14  T
+table(FinalDataset$Quartile) #Bottom 9316      IQR 11961       Top    5681  
 
 FinalDataset$Quartile[is.na(FinalDataset$Quartile)] <- "Bottom"
-table(is.na(FinalDataset$Quartile)) #539440  
-table(FinalDataset$Quartile) #Bottom 186600     IQR 239220    Top    113620 
+table(is.na(FinalDataset$Quartile)) #26972 F  
+table(FinalDataset$Quartile) #Bottom 9330        IQR 11961       Top    5681  
 
-#pick just one year of analysis:
-FinalDataset_2019 <- FinalDataset[FinalDataset$CurrentYear== 2019,]
-FinalDataset_summary <- FinalDataset_2019[,c("Relatedness_Cos2", "NoSubs_calculated", "NoSubsWithPatents", "Size_class", 
+#select the variables
+FinalDataset_summary <- FinalDataset[,c("Relatedness_Cos2", "NoSubs_calculated", "NoSubsWithPatents", "Size_class", 
                                              "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal","No_employees_Year",
                                              "Date_Incorporation",  "Specializations_Number",
                                              "Herfindahl", "Shannon", "Quartile",
