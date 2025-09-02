@@ -44,21 +44,43 @@ The repository is organized as follows:
 ```
 ---
 
-## Methodological Workflow
+### Methodological Workflow
 
-The main script, `Effects_AI_adoption.R`, executes the entire empirical analysis. Below is an overview of the workflow and how it corresponds to the paper's hypotheses.
+The main script, `Effects_AI_adoption.R`, executes the entire empirical analysis presented in the paper. The workflow is structured in four main stages, as visualized in the text-based flowchart below:
 
-1.  **Estimating Sectoral Distance to AI:** The script first calculates the technological relatedness between all IPC codes and AI. It then uses the nine most related technologies to measure each NACE sector's specialization in core AI fields, creating the sectoral distance metric used to categorize firms into quartiles (Q1, IQR, Q4).
+```
+├── [1] Overall Impact on Innovation
+│   ├── Focus: Core effects (H1, H2)
+│   ├── Method: Staggered DiD
+│   └── Key Variables: Knowledge Relatedness, Innovative Performance
+│
+├── [2] Transformation of Innovation Dynamics
+│   ├── Focus: Path dependency & sectoral proximity (H3, H4)
+│   ├── Method: Grouped DiD (by Q1, IQR, Q4)
+│   └── Key Variables: New Specializations, Technological Diversification, specializations in AI-related techologies
+│
+├── [3] The "Conversion Test"
+│   ├── Focus: Realized ACAP, innovation quality & efficiency (H5, H6)
+│   ├── Method: Grouped DiD (by patent grant status)
+│   └── Key Variables: Patent success rate, patent quality, patenting efficiency, R&D Investments
+│
+└── [4] Probing the ACAP Mechanisms
+    ├── Focus: Antecedents of the conversion challenge & role of internal learning
+    ├── Method: Dynamic Comparison (F-tests & Wilcoxon) on a new "success" vs. "unsuccessful" matched sample; DiD on Acquisition-Only sample
+    └── Key Variables: Pre-existing capabilities (at t-1); Post-treatment outcomes
+```
 
-2.  **Measuring Overall Effects (H1, H2):** The script implements a staggered DiD model to estimate the average treatment effect of a firm's first AI innovation on its knowledge relatedness and innovative performance (Table 1). A two-way fixed effects (TWFE) model is also used to test the moderating role of knowledge relatedness.
+The R script is organized to follow this structure:
 
-3.  **Analyzing Path Dependency (H3, H4):** The analysis is then segmented by sectoral proximity quartiles to test how a firm's initial technological position conditions its innovation gains (Table 2).
+* **Initial Setup (Sectoral Distance):** Before the main analyses, **Section 1** of the script calculates the technological relatedness of sectors to AI. This initial step creates the sectoral distance metric (Q1, IQR, Q4) that is used as a key grouping variable in the subsequent analyses.
 
-4.  **The "Conversion Test" (H5, H6):** This key analysis splits the treatment group into firms that only *applied* for an AI patent (Potential ACAP) and those that successfully had one or more *granted* (Realized ACAP). This reveals a stark divergence in outcomes (Figure 3, Tables 3 & 4).
+* **1. Overall Impact on Innovation (H1, H2):** Corresponding to **Box [1]** in the text-based flowchart above, the script implements a staggered DiD model to estimate the average treatment effect of a firm's first AI innovation on its knowledge relatedness and innovative performance (Table 1).
 
-5.  **Antecedents of Success:** A dynamic analysis compares matched successful vs. unsuccessful AI innovators year-by-year to map their divergent paths, identifying a pre-existing "conversion capability" (Table 5).
+* **2. Transformation of Innovation Dynamics (H3, H4):** Following **Box [2]** in the text-based flowchart above, the analysis is segmented by sectoral proximity quartiles to test how a firm's initial technological position conditions its innovation gains (Table 2).
 
-6.  **Robustness Check (Acquisition Effects):** A final DiD analysis is run on firms that only *acquired* AI patents to confirm that the observed benefits are driven by internal learning, not just ownership (Table 6).
+* **3. The "Conversion Test" (H5, H6):** This analysis, outlined in **Box [3]**, splits the treatment group by patent grant status to reveal the stark divergence in outcomes between firms with Potential vs. Realized ACAP (Figure 3, Tables 3 & 4).
+
+* **4. Probing ACAP Mechanisms:** Finally, corresponding to **Box [4]**, the script investigates the mechanisms behind the conversion challenge. It first runs a dynamic comparison to identify the pre-existing capabilities of successful innovators (Table 5) and then performs a robustness check on acquisition-only firms to isolate the effect of internal learning (Table 6).
 
 ---
 
