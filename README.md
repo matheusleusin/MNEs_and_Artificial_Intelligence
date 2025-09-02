@@ -25,6 +25,7 @@ The repository is organized as follows:
 ```
 /
 ├── Input_code/
+│   ├── Data_acquistions.csv                 # Supplementary variables for Table 6.
 │   ├── Data_all_MNEs_2019.csv               # Data for Appendix F descriptive statistics.
 │   ├── Matched_companies.csv                # The primary matched-pair dataset for DiD analysis.
 │   ├── Matched_companies_extra_data.csv     # Supplementary variables for Tables 3, 4, and 5.
