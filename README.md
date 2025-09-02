@@ -6,7 +6,7 @@ For a user-friendly overview of the code and the main estimations, please see th
 
 ## Overview
 
-This study investigates why firms realize vastly different returns from their investments in Artificial Intelligence. Drawing on Absorptive Capacity (ACAP) theory, the paper explores the firm-level mechanisms that separate successful AI innovators from the rest.
+The referenced paper investigates why firms realize vastly different returns from their investments in Artificial Intelligence. Drawing on Absorptive Capacity (ACAP) theory, the paper explores the firm-level mechanisms that separate successful AI innovators from the rest.
 
 Using a matched-pair, Difference-in-Differences (DiD) design on patent data from over 30,000 Multinational Enterprises (MNEs), the analysis reveals:
 * Introducing an AI innovation increases the **knowledge relatedness** of a firm's subsequent patents and boosts its overall innovative output.
@@ -35,6 +35,7 @@ The repository is organized as follows:
 │
 ├── Output_code/
 │   ├── Data/                                # Contains generated tables and intermediate datasets.
+│       ├── Code_Matching/                   # Contains the matched pairs used in the additional analyses of patent acquisition and dynamic temporal dynamics of the conversion challenge
 │   └── Figures/                             # Contains all generated plots and figures.
 │
 ├── Effects_AI_adoption.R                    # Main R script for running the entire analysis.
