@@ -2245,7 +2245,7 @@ results_new <- calculate_ci_and_significance(att, se, group, variable_name)
 results_df <- rbind(results_df, results_new)
 
 results_df_non_stand <- results_df %>%
-  mutate(Group = factor(Group, levels = c("DataLong_Subs_sim_group0", "DataLong_Subs_sim_group1", "DataLong_Subs_sim_group2"))) %>%
+  mutate(Group = factor(Group, levels = c("All", "Q1", "IQR"))) %>%
   arrange(Variable, Group)
 
 results_df_non_stand$Effect <- "non-standard"
@@ -2424,7 +2424,7 @@ results_new <- calculate_ci_and_significance(att, se, group, variable_name)
 results_df <- rbind(results_df, results_new)
 
 results_df_stand <- results_df %>%
-  mutate(Group = factor(Group, levels = c("DataLong_Subs_sim_group0", "DataLong_Subs_sim_group1", "DataLong_Subs_sim_group2"))) %>%
+  mutate(Group = factor(Group, levels = c("All", "Q1", "IQR"))) %>%
   arrange(Variable, Group)
 
 results_df_stand$Effect <- "standard"
@@ -2687,7 +2687,7 @@ results_new <- calculate_ci_and_significance(att, se, group, variable_name)
 results_df <- rbind(results_df, results_new)
 
 results_df_non_stand <- results_df %>%
-  mutate(Group = factor(Group, levels = c("DataLong_Subs_sim_group0", "DataLong_Subs_sim_group1", "DataLong_Subs_sim_group2"))) %>%
+  mutate(Group = factor(Group, levels = c("All", "Q1", "IQR"))) %>%
   arrange(Variable, Group)
 
 results_df_non_stand$Effect <- "non-standard"
@@ -2866,7 +2866,7 @@ results_new <- calculate_ci_and_significance(att, se, group, variable_name)
 results_df <- rbind(results_df, results_new)
 
 results_df_stand <- results_df %>%
-  mutate(Group = factor(Group, levels = c("DataLong_Subs_sim_group0", "DataLong_Subs_sim_group1", "DataLong_Subs_sim_group2"))) %>%
+  mutate(Group = factor(Group, levels = c("All", "Q1", "IQR"))) %>%
   arrange(Variable, Group)
 
 results_df_stand$Effect <- "standard"
