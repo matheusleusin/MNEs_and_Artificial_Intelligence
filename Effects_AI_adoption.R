@@ -401,7 +401,6 @@ summary(model_moderation) #treat:post_treatment 0.01644, treat:post_treatment:Re
 
 ##2.2. Measuring effects across sectors -----
 rm(list=ls())
-
 DataLong_Subs_sim <-read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec=",")
 length(unique(DataLong_Subs_sim$id)) #2514 ids 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
@@ -523,7 +522,7 @@ idname = "id"
 gname = "first.treat"
 
 #define the possible groups
-groups = c("DataLong_Subs_sim_group1","DataLong_Subs_sim_group2","DataLong_Subs_sim_group3", "DataLong_Subs_sim_group0")
+groups = c("Q1","IQR","Q4", "All")
 
 #define the possible variables
 variables = c(#main ones (8) - linked to knowledge creation, usage, and recombination
@@ -1598,2095 +1597,155 @@ results_df$mode <- "standard"
 write.xlsx(results_df, file = "Output_code/Data/Table_2_stand.xlsx", rowNames = F)
 
 ##2.3. Contrasting granted versus non-granted-------
-DataLong_Subs_sim %<>% group_by(Company) %>% mutate(total_granted_ai = max(n_granted_yes_ai, na.rm =T )) %>% ungroup()
+DataLong_Subs_sim %<>% group_by(Company) %>% mutate(total_granted_ai = max(n_granted_yes_ai, na.rm = T)) %>% ungroup()
 
-####2.3.1. Treatment non-granted-----
-Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
-Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
-
-#so the treatment will now be companies that never had an AI patent granted
-Current_treated_new_treat <-Current_treated[Current_treated$total_granted_ai ==0,]
-length(unique(Current_treated_new_treat$id)) #777 non-granted
+#### 2.3.1. Treatment non-granted-----
+# Define the treated group as companies that never had an AI patent granted
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1, ]
+Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0, ]
+Current_treated_new_treat <- Current_treated[Current_treated$total_granted_ai == 0, ]
 
 DataLong_Subs_sim_non_granted <- rbind(Current_treated_new_treat, Current_non_treated)
-table(DataLong_Subs_sim_non_granted$Quartile)
 
+# Define quartile groups
 DataLong_Subs_sim_group0 <- DataLong_Subs_sim_non_granted
-DataLong_Subs_sim_group1 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "Top",]
-DataLong_Subs_sim_group2 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "IQR" ,]
-DataLong_Subs_sim_group3 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "Bottom",]
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "Top", ]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "IQR", ]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "Bottom", ]
 
-#####2.3.1.1.Calculate the effects Non-standardized across groups -----
-#Group 1
-variable_n = 1
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#summary(agg.simple)
+# Define groups for the loop
+groups_data <- c("DataLong_Subs_sim_group1", "DataLong_Subs_sim_group2", "DataLong_Subs_sim_group3")
+groups_names <- c("Q1", "IQR", "Q4")
 
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#create the dataset:
-results_df <- calculate_ci_and_significance(att, se, group, variable_name)
+# Calculate non-standardized effects across groups
+results_df <- data.frame()
 
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
+# Loop for main variables across quartile groups (1-8)
+for (group_n in 1:3) {
+  for (variable_n in 1:8) {
+    group_data <- get(groups_data[group_n])
+    estim_attgt <- att_gt(yname = variables[variable_n], tname = tname, idname = idname, gname = gname, data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    results_new <- calculate_ci_and_significance(agg.simple$overall.att, agg.simple$overall.se, groups_names[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
 
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Innovative performance 
-#Group 1
-variable_n = 2
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Number of specializations
-#Group 1
-variable_n = 3
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique Classes
-#Group 1
-variable_n = 4
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique subclasses
-#Group 1
-variable_n = 5
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Herfindahl
-#Group 1
-variable_n = 6
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Shannon
-#Group 1
-variable_n = 7
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### AI codes
-#Group 1
-variable_n = 8
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#####2.3.1.2.Calculate the effects Non-standardized for the whole dataset -----
-#Group 4
-n_group = 4
-variable_n = 9
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 10
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 11
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 12
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 13
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 14
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 15
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 16
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 17
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 18
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 19
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 20
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 21
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 22
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 23
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 24
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 25
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 26
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 27
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 28
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 29
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 30
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 31
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 32
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 33
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
+# Loop for all variables for the entire non-granted dataset (9-33)
+for (variable_n in 9:33) {
+  estim_attgt <- att_gt(yname = variables[variable_n], tname = tname, idname = idname, gname = gname, data = DataLong_Subs_sim_group0)
+  agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+  results_new <- calculate_ci_and_significance(agg.simple$overall.att, agg.simple$overall.se, "All", variables[variable_n])
+  results_df <- rbind(results_df, results_new)
+}
 
 results_df$dataset <- "non_granted"
 results_df$mode <- "non_standard"
-
 write.xlsx(results_df, file = "Output_code/Data/Table_3_and_Appendix_H_none_granted.xlsx", rowNames = F)
 
-####2.3.2. Treatment granted-----
-Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
-Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
-
-#so the treatment will now be companies that had at least one AI patent granted
-Current_treated_new_treat <-Current_treated[Current_treated$total_granted_ai >0,]
-length(unique(Current_treated_new_treat$id)) #480 granted
+#### 2.3.2. Treatment: Granted 1+-----
+# Define the treated group as companies that had at least one AI patent granted
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1, ]
+Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0, ]
+Current_treated_new_treat <- Current_treated[Current_treated$total_granted_ai > 0, ]
 
 DataLong_Subs_sim_granted <- rbind(Current_treated_new_treat, Current_non_treated)
-table(DataLong_Subs_sim_granted$Quartile)
 
+# Define quartile groups
 DataLong_Subs_sim_group0 <- DataLong_Subs_sim_granted
-DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Top",]
-DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR" ,]
-DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom",]
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Top", ]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR", ]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom", ]
 
-#####2.3.2.1.Calculate the effects Non-standardized across groups -----
-#Group 1
-variable_n = 1
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#summary(agg.simple)
+# Calculate non-standardized effects across groups
+results_df <- data.frame()
 
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#create the dataset:
-results_df <- calculate_ci_and_significance(att, se, group, variable_name)
+# Loop for main variables across quartile groups (1-8)
+for (group_n in 1:3) {
+  for (variable_n in 1:8) {
+    group_data <- get(groups_data[group_n])
+    estim_attgt <- att_gt(yname = variables[variable_n], tname = tname, idname = idname, gname = gname, data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    results_new <- calculate_ci_and_significance(agg.simple$overall.att, agg.simple$overall.se, groups_names[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
 
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Innovative performance 
-#Group 1
-variable_n = 2
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Number of specializations
-#Group 1
-variable_n = 3
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique Classes
-#Group 1
-variable_n = 4
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique subclasses
-#Group 1
-variable_n = 5
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Herfindahl
-#Group 1
-variable_n = 6
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Shannon
-#Group 1
-variable_n = 7
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### AI codes
-#Group 1
-variable_n = 8
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#####2.3.2.2.Calculate the effects Non-standardized for the whole dataset -----
-#Group 4
-n_group = 4
-variable_n = 9
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 10
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 11
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 12
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 13
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 14
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 15
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 16
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 17
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 18
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 19
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 20
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 21
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 22
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 23
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 24
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 25
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 26
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 27
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 28
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 29
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 30
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 31
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 32
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-variable_n = 33
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group0 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se           
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
+# Loop for all variables for the entire granted dataset (9-33)
+for (variable_n in 9:33) {
+  estim_attgt <- att_gt(yname = variables[variable_n], tname = tname, idname = idname, gname = gname, data = DataLong_Subs_sim_group0)
+  agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+  results_new <- calculate_ci_and_significance(agg.simple$overall.att, agg.simple$overall.se, "All", variables[variable_n])
+  results_df <- rbind(results_df, results_new)
+}
 
 results_df$dataset <- "granted"
 results_df$mode <- "non_standard"
-
 write.xlsx(results_df, file = "Output_code/Data/Table_3_and_Appendix_H_granted.xlsx", rowNames = F)
 
 ##2.4. Treatment with more than 1 granted patents--------
-###2.4.1.Treatment granted 2 granted patents-----
+#### 2.4.1. Treatment: Granted 2+ AI Patents-----
+# Define the treated group as companies with more than 1 granted AI patent
 Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
 Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
-
-#so the treatment will now be companies that had at least one AI patent granted
 Current_treated_new_treat <-Current_treated[Current_treated$total_granted_ai >1,]
-length(unique(Current_treated_new_treat$id)) #480 granted
-
 DataLong_Subs_sim_granted <- rbind(Current_treated_new_treat, Current_non_treated)
-table(DataLong_Subs_sim_granted$Quartile)
 
+# Define quartile groups
 DataLong_Subs_sim_group0 <- DataLong_Subs_sim_granted
 DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Top",]
 DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR" ,]
 DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom",]
 
-######2.4.1.1.Calculate the effects Non-standardized across groups -----
-#Group 1
-variable_n = 1
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#summary(agg.simple)
-
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#create the dataset:
-results_df <- calculate_ci_and_significance(att, se, group, variable_name)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Innovative performance 
-#Group 1
-variable_n = 2
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Number of specializations
-#Group 1
-variable_n = 3
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique Classes
-#Group 1
-variable_n = 4
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique subclasses
-#Group 1
-variable_n = 5
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Herfindahl
-#Group 1
-variable_n = 6
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Shannon
-#Group 1
-variable_n = 7
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### AI codes
-#Group 1
-variable_n = 8
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
+# Calculate non-standardized effects across groups
+results_df <- data.frame()
+# Loop for main variables across quartile groups
+for (group_n in 1:3) {
+  for (variable_n in 1:8) {
+    group_data <- get(groups_data[group_n])
+    estim_attgt <- att_gt(yname = variables[variable_n], tname = tname, idname = idname, gname = gname, data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    results_new <- calculate_ci_and_significance(agg.simple$overall.att, agg.simple$overall.se, groups_names[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
 
 results_df$dataset <- "granted_2patents"
 results_df$mode <- "non_standard"
-
 write.xlsx(results_df, file = "Output_code/Data/Appendix_H_2plus_granted.xlsx", rowNames = F)
 
-###2.4.2. Treatment granted 3 granted patents-----
+#### 2.4.2. Treatment: Granted 3+ AI Patents-----
+# Define the treated group as companies with more than 2 granted AI patents
 Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
 Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
-
-#so the treatment will now be companies that had at least one AI patent granted
 Current_treated_new_treat <-Current_treated[Current_treated$total_granted_ai >2,]
-length(unique(Current_treated_new_treat$id)) #480 granted
-
 DataLong_Subs_sim_granted <- rbind(Current_treated_new_treat, Current_non_treated)
-table(DataLong_Subs_sim_granted$Quartile)
 
+# Define quartile groups
 DataLong_Subs_sim_group0 <- DataLong_Subs_sim_granted
 DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Top",]
 DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR" ,]
 DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom",]
 
-#####2.4.2.1.Calculate the effects Non-standardized across groups -----
-#Group 1
-variable_n = 1
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#summary(agg.simple)
-
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#create the dataset:
-results_df <- calculate_ci_and_significance(att, se, group, variable_name)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Innovative performance 
-#Group 1
-variable_n = 2
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Number of specializations
-#Group 1
-variable_n = 3
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique Classes
-#Group 1
-variable_n = 4
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Unique subclasses
-#Group 1
-variable_n = 5
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Herfindahl
-#Group 1
-variable_n = 6
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### Shannon
-#Group 1
-variable_n = 7
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#### AI codes
-#Group 1
-variable_n = 8
-n_group = 1
-group = print(groups[n_group], quote=FALSE)
-variable_name <- variables[variable_n]
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 2
-n_group = 2
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
-
-#Group 3
-n_group = 3
-group = print(groups[n_group], quote=FALSE)
-#estimate:
-estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
-                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
-agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
-#pick the estimate values:
-att <- agg.simple$overall.att          
-se <- agg.simple$overall.se            # Standard Error
-#update dataset:
-results_new <- calculate_ci_and_significance(att, se, group, variable_name)
-results_df <- rbind(results_df, results_new)
+# Calculate non-standardized effects across groups
+results_df <- data.frame()
+# Loop for main variables across quartile groups
+for (group_n in 1:3) {
+  for (variable_n in 1:8) {
+    group_data <- get(groups_data[group_n])
+    estim_attgt <- att_gt(yname = variables[variable_n], tname = tname, idname = idname, gname = gname, data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    results_new <- calculate_ci_and_significance(agg.simple$overall.att, agg.simple$overall.se, groups_names[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
 
 results_df$dataset <- "granted_3patents"
 results_df$mode <- "non_standard"
-
 write.xlsx(results_df, file = "Output_code/Data/Appendix_H_3plus_granted.xlsx", rowNames = F)
 
-##2.5. Contrasting successful from unsuccessful AI innovators-------
-Group2 <-read.csv("Output_code/Data/Matched_Group2_applied_for_but_nonegranted_vs_granted.csv", sep = ";", header = TRUE, dec=",") 
+##2.5. Contrasting successful and unsuccessful AI innovators-------
+Group2 <-read.csv("Output_code/Data/Code_Matching/Matched_Group2_applied_for_but_nonegranted_vs_granted.csv", sep = ";", header = TRUE, dec=",") 
 DataLong_Subs_sim %<>% group_by(Company) %>% mutate(total_granted_ai = max(n_granted_yes_ai, na.rm =T )) %>% ungroup()
 
 #select the companies that introduced AI
@@ -3764,74 +1823,43 @@ write.csv2(t_plus1, file = "Output_code/Data/Descriptive_statistics_AppendixI_t_
 write.csv2(t_plus2, file = "Output_code/Data/Descriptive_statistics_AppendixI_t_plus2.csv", row.names = F) 
 write.csv2(t_plus3, file = "Output_code/Data/Descriptive_statistics_AppendixI_t_plus3.csv", row.names = F) 
 
-###2.5.2.Wilcoxon rank-sum test-----
+###2.5.2. Wilcoxon rank-sum test-----
+### 2.5.2. Wilcoxon rank-sum test-----
+# A loop structure is highly beneficial here to avoid repetition.
+# It iterates through the variables and performs the Wilcoxon test for each period.
 variables_to_test <- c(
-  #main ones:
   "Relatedness_Cos2", "NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass","Herfindahl", "Shannon", "AIcodes",
-  
-  #quality measures 
   "Rate_granted", "avg_claims", "avg_number_of_family_members", "avg_backward_citations", "avg_forward_citations", "avg_time_filing_to_publication",
   "avg_time_filing_to_grant", "avg_time_publication_to_grant", "n_granted_na", "n_granted_yes",
-  #subs and HQs 
   "Rate_success_subs", "Rate_success_HQ", "n_granted_yes_HQ", "n_granted_na_HQ", "avg_time_filing_to_publication_HQ", "avg_time_filing_to_grant_HQ", 
   "avg_time_publication_to_grant_HQ", "n_granted_yes_subsidiaries", "n_granted_na_subsidiaries", "avg_time_filing_to_publication_subsidiaries", "avg_time_filing_to_grant_subsidiaries", "avg_time_publication_to_grant_subsidiaries", 
-  
-  #aditional performance variables (3) - knowledge productivity
   "Patent_productivity", "Patent_output_per_employee", "RandD_Year",
-  
-  #extra ones
-  # "Size_class", "Agegroup", 
   "Date_Incorporation", "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal", "No_subs_extended", "operating_revenue_turnover",
   "number_of_employees", "number_patents_year","NoPatentsYearGUOalone","NoPatentsYearALLSubs","Stock_value", "Market_capitalisation",
   "total_granted_ai")
 
-#for t-1
-wilcox_results_t_minus1 <- list()
-for (variable in variables_to_test) {
-  test_formula <- as.formula(paste(variable, "~ new_treat"))
-  test_result <- wilcox.test(test_formula, data = reordered_data_Year_tminus1)
-  wilcox_results_t_minus1[[variable]] <- test_result$p.value
+periods <- c("tminus1", "t", "t_plus1", "t_plus2", "t_plus3")
+wilcox_results_list <- list()
+
+for (period in periods) {
+  period_data <- get(paste0("reordered_data_Year_", period))
+  
+  # Select only numeric columns for the Wilcoxon test
+  numeric_variables <- variables_to_test[sapply(period_data[, variables_to_test], is.numeric)]
+  
+  wilcox_period_results <- list()
+  for (variable in numeric_variables) {
+    test_formula <- as.formula(paste(variable, "~ new_treat"))
+    test_result <- wilcox.test(test_formula, data = period_data)
+    wilcox_period_results[[variable]] <- test_result$p.value
+  }
+  
+  wilcox_period_df <- as.data.frame(wilcox_period_results)
+  wilcox_period_df$Period <- period
+  wilcox_results_list[[period]] <- wilcox_period_df
 }
-wilcox_results_t_minus1<-as.data.frame(wilcox_results_t_minus1) #for wilcox, p-value > 0.05 means no significant differences, and values below mean significant differences
-wilcox_results_t_minus1$Period <- "t-1"
 
-#for t
-wilcox_results_t <- list()
-for (variable in variables_to_test) {
-  test_formula <- as.formula(paste(variable, "~ new_treat"))
-  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t)
-  wilcox_results_t[[variable]] <- test_result$p.value}
-wilcox_results_t<-as.data.frame(wilcox_results_t) 
-wilcox_results_t$Period <- "t"
-
-#for t+1
-wilcox_results_t_plus1 <- list()
-for (variable in variables_to_test) {
-  test_formula <- as.formula(paste(variable, "~ new_treat"))
-  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus1)
-  wilcox_results_t_plus1[[variable]] <- test_result$p.value}
-wilcox_results_t_plus1<-as.data.frame(wilcox_results_t_plus1) 
-wilcox_results_t_plus1$Period <- "t+1"
-
-#for t+2
-wilcox_results_t_plus2 <- list()
-for (variable in variables_to_test) {
-  test_formula <- as.formula(paste(variable, "~ new_treat"))
-  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus2)
-  wilcox_results_t_plus2[[variable]] <- test_result$p.value}
-wilcox_results_t_plus2<-as.data.frame(wilcox_results_t_plus2) 
-wilcox_results_t_plus2$Period <- "t+2"
-
-#for t+3
-wilcox_results_t_plus3 <- list()
-for (variable in variables_to_test) {
-  test_formula <- as.formula(paste(variable, "~ new_treat"))
-  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus3)
-  wilcox_results_t_plus3[[variable]] <- test_result$p.value}
-wilcox_results_t_plus3<-as.data.frame(wilcox_results_t_plus3) 
-wilcox_results_t_plus3$Period <- "t+3"
-
-wilcox <- rbind(wilcox_results_t_minus1, wilcox_results_t,wilcox_results_t_plus1, wilcox_results_t_plus2,wilcox_results_t_plus3)
+wilcox <- do.call(rbind, wilcox_results_list)
 
 transposed_df <- wilcox %>%
   pivot_longer(
@@ -3843,7 +1871,7 @@ transposed_df <- wilcox %>%
     names_from = Period,
     values_from = value)
 
-write.csv2(transposed_df, file = "Output_code/Data/Descriptive_statistics_AppendixI_Wilcox_results.csv", row.names = F) 
+write.xlsx(transposed_df, file = "Output_code/Data/Descriptive_statistics_AppendixI_Wilcox_results.xlsx", rowNames = F)
 
 #3.Descriptive statistics and correlations-----
 ##3.1.Statistics All data------
@@ -3953,7 +1981,7 @@ ggcorrplot(corr_matrix, legend.title = "Correlation", hc.order=F,lab = TRUE, lab
 dev.off()
 
 #For the whole dataset 
-data_normalized <- FinalDataset_2019[,c("Relatedness_Cos2", "Specializations_Number",
+data_normalized <- FinalDataset[,c("Relatedness_Cos2", "Specializations_Number",
                                    "Date_Incorporation","No_AI_PatentsYearGUOtotal", "NoPatentsYearGUOtotal")] 
 
 names(data_normalized) <- c("Relatedness", "N. of specializations","Date of incorporation", "N. of AI patents","N. of patents") 
@@ -3969,19 +1997,13 @@ dev.off()
 ##4.1. For ratio 5 and using the Quartile measure-----
 rm(list=ls())
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-DataLong_Subs_sim <- read.csv("Input_code/Big_files_ignore/NEW_FIG/Matched_companies_Acquis_match_ratio5.csv", sep = ";", header = TRUE, dec=",") #
-Data_all <- read.csv("Input_code/Data_all_years_all_MNEs.csv", sep = ";", header = TRUE, dec=",") #
-
+DataLong_Subs_sim <- read.csv("Output_code/Data/Code_Matching/Matched_companies_Acquis_match_ratio5.csv", sep = ";", header = TRUE, dec=",") #
+Data_all <- read.csv("Input_code/Data_acquistions.csv", sep = ";", header = TRUE, dec=",") #
 DataLong_Subs_sim <- left_join(DataLong_Subs_sim, Data_all[,c("Company", "CurrentYear","Specializations_Number", 
                                                               "UniqueCodes", "UniqueSubclass")], by = c("Company", "CurrentYear"))
 
 table(is.na(DataLong_Subs_sim$Quartile)) #672    F
 table(DataLong_Subs_sim$Quartile) # IQR 420     top 252         
-
-#add dynamic capabilities
-dynamic_capabilities <- read.csv("Input_code/Big_files_ignore/df_dynamic_capabilities.csv", header = TRUE)
-names(dynamic_capabilities)[names(dynamic_capabilities) == 'Year'] <- 'CurrentYear'
-DataLong_Subs_sim <- left_join(DataLong_Subs_sim, dynamic_capabilities, by=c("Company", "CurrentYear"))
 
 treat_test <-DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
 nontreat_test <-DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
@@ -4046,7 +2068,7 @@ idname = "id"
 gname = "first.treat"
 
 #define the possible groups
-groups = c("DataLong_Subs_sim_group1","DataLong_Subs_sim_group2","DataLong_Subs_sim_group3", "DataLong_Subs_sim_group0")
+groups = c("Q1","IQR","Q4", "All")
 
 #define the possible variables
 variables = c(#main ones (11) - linked to knowledge creation, usage, and recombination
@@ -4230,14 +2252,14 @@ results_df_non_stand$Effect <- "non-standard"
 results_df_non_stand$Matching <- "1_to_5"
 
 ######Standard
-DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")] <- 
-  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")])
+DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")] <- 
+  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")])
 
-DataLong_Subs_sim_group1[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")] <- 
-  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")])
+DataLong_Subs_sim_group1[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")] <- 
+  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")])
 
-DataLong_Subs_sim_group2[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")] <- 
-  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")])
+DataLong_Subs_sim_group2[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")] <- 
+  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")])
 
 variable_n = 1
 n_group = 4
@@ -4411,24 +2433,19 @@ results_df_stand$Matching <- "1_to_5"
 results_df_ratio5 <- rbind(results_df_non_stand, results_df_stand)
 rm(results_df_stand, results_df_non_stand)
 
-write.xlsx(results_df_ratio5, file = "Output_code/Data/Table_5b.xlsx", rowNames = F) 
+write.xlsx(results_df_ratio5, file = "Output_code/Data/Table_6a.xlsx", rowNames = F) 
 
 ##4.2. For ratio 1 and 5, and using the Nace 2-d measure -----
 rm(list=ls())
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-DataLong_Subs_sim <- read.csv("Input_code/Big_files_ignore/NEW_FIG/Matched_companies_Acquis_match_Nace_2d.csv", sep = ";", header = TRUE, dec=",") #
-Data_all <- read.csv("Input_code/Data_all_years_all_MNEs.csv", sep = ";", header = TRUE, dec=",") #
+DataLong_Subs_sim <- read.csv("Output_code/Data/Code_Matching/Matched_companies_Acquis_match_Nace_2d.csv", sep = ";", header = TRUE, dec=",") #
+Data_all <- read.csv("Input_code/Data_acquistions.csv", sep = ";", header = TRUE, dec=",") #
 
 DataLong_Subs_sim <- left_join(DataLong_Subs_sim, Data_all[,c("Company", "CurrentYear","Specializations_Number", 
                                                               "UniqueCodes", "UniqueSubclass")], by = c("Company", "CurrentYear"))
 
 table(is.na(DataLong_Subs_sim$Quartile)) #672    F
 table(DataLong_Subs_sim$Quartile) # IQR 420     top 252         
-
-#add dynamic capabilities
-dynamic_capabilities <- read.csv("Input_code/Big_files_ignore/df_dynamic_capabilities.csv", header = TRUE)
-names(dynamic_capabilities)[names(dynamic_capabilities) == 'Year'] <- 'CurrentYear'
-DataLong_Subs_sim <- left_join(DataLong_Subs_sim, dynamic_capabilities, by=c("Company", "CurrentYear"))
 
 treat_test <-DataLong_Subs_sim[DataLong_Subs_sim$treat == 1,]
 nontreat_test <-DataLong_Subs_sim[DataLong_Subs_sim$treat == 0,]
@@ -4493,7 +2510,7 @@ idname = "id"
 gname = "first.treat"
 
 #define the possible groups
-groups = c("DataLong_Subs_sim_group1","DataLong_Subs_sim_group2","DataLong_Subs_sim_group3", "DataLong_Subs_sim_group0")
+groups = c("Q1","IQR","Q4", "All")
 
 #define the possible variables
 variables = c(#main ones (11) - linked to knowledge creation, usage, and recombination
@@ -4677,14 +2694,14 @@ results_df_non_stand$Effect <- "non-standard"
 results_df_non_stand$Matching <- "Nace_2d"
 
 ######Standard
-DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")] <- 
-  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")])
+DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")] <- 
+  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")])
 
-DataLong_Subs_sim_group1[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")] <- 
-  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")])
+DataLong_Subs_sim_group1[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")] <- 
+  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")])
 
-DataLong_Subs_sim_group2[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")] <- 
-  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Dynamic_capabilities")])
+DataLong_Subs_sim_group2[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")] <- 
+  scale(DataLong_Subs_sim_group0[,c("Relatedness_Cos2","NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass")])
 
 variable_n = 1
 n_group = 4
@@ -4858,49 +2875,88 @@ results_df_stand$Matching <- "Nace_2d"
 results_df_nace_2d <- rbind(results_df_non_stand, results_df_stand)
 rm(results_df_stand, results_df_non_stand)
 
-write.xlsx(results_df_nace_2d, file = "Output_code/Data/Table_5a.xlsx", rowNames = F)
-#5.New Figure 3------
+write.xlsx(results_df_nace_2d, file = "Output_code/Data/Table_6b.xlsx", rowNames = F)
+#5.Figure 3------
 rm(list=ls())
 options(scipen=999)
-raw <- read_excel("Input_code/Table 3.xlsx")
 
-variable_order <- c(
-  "Relatedness",
-  "Innovative Performance",
-  "Number of specializations",
-  "Sections",
-  "Subclasses",
-  "Herfindahl index",
-  "Shannon entropy index",
-  "No. of spec. in the 5 techn. most related to AI")
+# Load results from the previously saved excel files
+None <- read_excel("Output_code/Data/Table_3_and_Appendix_H_none_granted.xlsx")
+Onegranted <- read_excel("Output_code/Data/Table_3_and_Appendix_H_granted.xlsx")
+Twogranted <- read_excel("Output_code/Data/Appendix_H_2plus_granted.xlsx")
+Threegranted <- read_excel("Output_code/Data/Appendix_H_3plus_granted.xlsx")
 
-df_long <- raw %>%
-  tidyr::fill(Variable) %>%
-  pivot_longer(cols = -c(Variable, Q),
-               names_to = "Group", values_to = "Value") %>%
+# Standardize column names and filter for common variables
+Threegranted <- Threegranted[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+Twogranted <- Twogranted[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+Onegranted <- Onegranted[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+None <- None[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+
+Onegranted <- Onegranted[Onegranted$Variable %in% Threegranted$Variable,]
+None <- None[None$Variable %in% Threegranted$Variable,]
+
+# Combine the dataframes
+Data <- left_join(None[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  Onegranted[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  by = c("Variable", "Group"), suffix = c(".none", ".one"))
+Data <- left_join(Data, Twogranted[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  by = c("Variable", "Group"), suffix = c(".one", ".two"))
+Data <- left_join(Data, Threegranted[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  by = c("Variable", "Group"), suffix = c(".two", ".three"))
+
+# Reshape data for plotting
+df_long <- Data %>%
+  pivot_longer(
+    cols = starts_with("ATT") | starts_with("Std") | starts_with("Significance"),
+    names_to = c(".value", "granted_group"),
+    names_sep = "\\."
+  ) %>%
   mutate(
-    est_chr = str_extract(Value, "(?<!\\()[−-]?\\d+(?:,\\d+)?"),
-    sd_chr  = str_extract(Value, "(?<=\\()[^)]+(?=\\))"),
-    Estimate = as.numeric(str_replace(est_chr, ",", ".")),
-    SD       = as.numeric(str_replace(sd_chr,  ",", ".")),
-    Group = factor(Group,
-                   levels = c("None granted","Granted 1+","Granted 2+","Granted 3+")),
+    # Rename variables for plot clarity
+    Variable = case_when(
+      Variable == "Relatedness_Cos2" ~ "Relatedness",
+      Variable == "NoPatentsYearGUOtotal" ~ "Innovative Performance",
+      Variable == "Specializations_Number" ~ "Number of specializations",
+      Variable == "UniqueCodes" ~ "Number of unique IPC Sections used",
+      Variable == "UniqueSubclass" ~ "Number of unique IPC Subclasses used",
+      Variable == "Herfindahl" ~ "Herfindahl index",
+      Variable == "Shannon" ~ "Shannon entropy index",
+      Variable == "AIcodes" ~ "No. of spec. in the 5 techn. most related to AI",
+      TRUE ~ Variable
+    ),
+    # Rename groups for plot clarity
+    Q = case_when(
+      Group == "DataLong_Subs_sim_group1" ~ "Q1",
+      Group == "DataLong_Subs_sim_group2" ~ "IQR",
+      Group == "DataLong_Subs_sim_group3" ~ "Q4",
+      TRUE ~ Group
+    ),
+    # Rename granted groups for plot clarity
+    granted_group = case_when(
+      granted_group == "none" ~ "None granted",
+      granted_group == "one" ~ "Granted 1+",
+      granted_group == "two" ~ "Granted 2+",
+      granted_group == "three" ~ "Granted 3+",
+      TRUE ~ granted_group
+    )
+  ) %>%
+  filter(!is.na(ATT), !is.na(Q)) %>%
+  mutate(
+    Group = factor(granted_group, levels = c("None granted", "Granted 1+", "Granted 2+", "Granted 3+")),
     Q = factor(Q, levels = c("Q1", "IQR", "Q4")),
-    Variable = factor(Variable, levels = variable_order) ) %>%
-  filter(!is.na(Variable), !is.na(Estimate))
-
-df_long$Variable <- fct_recode(df_long$Variable,
-                               "Number of unique IPC Subclasses used" = "Subclasses")
-df_long$Variable <- fct_recode(df_long$Variable,
-                               "Number of unique IPC Sections used" = "Sections")
+    Variable = factor(Variable, levels = c(
+      "Relatedness", "Innovative Performance", "Number of specializations", "Number of unique IPC Sections used", 
+      "Number of unique IPC Subclasses used", "Herfindahl index", "Shannon entropy index", 
+      "No. of spec. in the 5 techn. most related to AI"
+    ))
+  )
 
 jpeg("Output_code/Figures/Fig3_Table3.jpg", width = 10, height = 8, units = 'in', res = 400)
-ggplot(df_long, aes(x = Group, y = Estimate, fill = Group)) +
+ggplot(df_long, aes(x = Group, y = ATT, fill = Group)) +
   geom_col(width = 0.7) +
-  geom_errorbar(aes(ymin = Estimate - SD, ymax = Estimate + SD), width = 0.2) +
+  geom_errorbar(aes(ymin = ATT - Std_Error, ymax = ATT + Std_Error), width = 0.2) +
   facet_grid(rows = vars(Variable), cols = vars(Q), scales = "free_y") +
-  labs(title = "Effects by grant group and quantile",
-       y = "Effect (estimate ± SD)", x = NULL) +
+  labs(y = expression("Effect (estimate " %+-% " SD)"), x = NULL) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "none",

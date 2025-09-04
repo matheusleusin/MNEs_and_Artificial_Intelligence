@@ -1491,7 +1491,7 @@ rm(TreatedUnits)
 
 #the code below could overwrite the original one, where I excluded Companies ids, so I'll save it twice
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-write.csv2(DataLong_Subs_sim, file = "NEW_FIG/Matched_companies_Acquis_match_ratio5.csv", row.names = F)
+write.csv2(DataLong_Subs_sim, file = "Output_code/Data/Code_Matching/Matched_companies_Acquis_match_ratio5.csv", row.names = F)
 
 #####4.4.2.1. For NACE-based-----
 rm(list=ls())
@@ -1638,6 +1638,6 @@ rm(TreatedUnits)
 
 #the code below could overwrite the original one, where I excluded Companies ids, so I'll save it twice
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-write.csv2(DataLong_Subs_sim, file = "Input_code/Big_files_ignore/NEW_FIG/Matched_companies_Acquis_match_Nace_2d.csv", row.names = F)
+write.csv2(DataLong_Subs_sim, file = "Output_code/Data/Code_Matching/Matched_companies_Acquis_match_Nace_2d.csv", row.names = F)
 
 #

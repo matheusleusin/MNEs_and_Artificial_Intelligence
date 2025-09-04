@@ -1,0 +1,1757 @@
+---
+title: "Markdown - Measuring the effects of AI introduction on MNEs' innovative performance"
+output:
+  html_document:
+    toc: true
+    toc_float: true # This makes it a floating sidebar in HTML
+    theme: united
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE)
+knitr::opts_chunk$set()
+```
+This html file is divided into 3 main parts. In the **first part**, the technological distance of 4-digit IPC codes to AI is measured, as well as the estimated distance of NACE sectors to AI. In the **second part**, the DiD estimations are calculated for the variables considered in the paper. Finally, the **third part** provides the descriptive statistics shown in the Appendices of the paper, as well as correlations not included in the paper. 
+
+
+# 1. Measuring technological distances: from 4-digit IPC codes to AI technologies, and from NACE sectors to AI.
+
+This section details the methodology used to calculate the technological distance of different industry sectors and patent codes from AI. We begin by measuring the distance of 4-digit International Patent Classification (IPC) codes to a defined set of AI patents. Following this, we treat AI as its own technological "sector" to measure the distance of NACE sectors to this new "AI sector"
+
+## 1.1. Technological distance of 4-digit IPC codes to AI
+
+In this subsection, we start by loading and preparing the necessary patent and company data. This data, which is proprietary and not publicly available, links patents to multinational enterprises (MNEs) and their respective NACE sectors.
+
+```{r, include=FALSE}
+# Load necessary libraries for data manipulation and analysis
+library(data.table) 
+library(readxl) 
+library(tidyverse) 
+library(magrittr) 
+library(EconGeo) 
+library(psych) 
+library(Metrics) 
+library(did) 
+library(openxlsx)
+library(zoo) 
+library(vtable) 
+library(ggcorrplot) 
+library(knitr)
+library(gt)
+library(viridis)
+
+rm(list=ls()) # Clean the environment
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # Set working directory to the script's location
+
+# Read and combine the patent data files
+all_patents <- fread("Input_code/Big_files_ignore/All_patents.csv")
+CompaniesData1 <- read_excel("Input_code/Big_files_ignore/DataCompanies1.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData2 <- read_excel("Input_code/Big_files_ignore/DataCompanies2.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData3 <- read_excel("Input_code/Big_files_ignore/DataCompanies3.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData4 <- read_excel("Input_code/Big_files_ignore/DataCompanies4.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData5 <- read_excel("Input_code/Big_files_ignore/DataCompanies5.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData6 <- read_excel("Input_code/Big_files_ignore/DataCompanies6.xlsx", sheet = "Results", na = "n.a.")
+CompaniesData <- rbind(CompaniesData1, CompaniesData2, CompaniesData3, CompaniesData4, CompaniesData5, CompaniesData6)
+
+# Select only the relevant columns and rename them for clarity
+CompaniesData <- CompaniesData[,c(2, 3, 6)] 
+names(CompaniesData) <- c("Company_name", "Company", "Nace_4d")
+
+# Clean up memory
+rm(CompaniesData1, CompaniesData2, CompaniesData3, CompaniesData4, CompaniesData5, CompaniesData6)
+
+# Merge patent and company data
+all_patents <- left_join(all_patents, CompaniesData, by = "Company")
+all_patents <- all_patents[!is.na(all_patents$Nace_4d),] # Drop patents from companies without Nace codes
+all_patents <- all_patents[, -7] # Exclude company name column
+
+```
+
+Our patent file, after being loaded and pre-processed, contains a number of variables, including a unique publication number (PubNo), the company ID (Company), and the corresponding 4-digit International Patent Classification (IPC) code for the technology (Subclass). This is a sample of the data:
+```{r}
+kable(head(all_patents[, c("PubNo", "AIpatent", "Subclass", "Company", "Subsidiaries", "Nace_4d","Priority_year")], 5),
+      caption = "Sample of the Patent Data",
+      col.names = c("Publication No.", "Is AI Patent", "IPC Subclass", "Company ID (GUO)", "Linked Subsidiary","Nace code from the Company","Year"))
+```
+
+Next, we introduce AI as a distinct technology by creating a new category named "Artificial_Intelligence". We then build a co-occurrence matrix to measure how often different patent codes appear together. This matrix is the foundation for calculating the technological distance between IPC codes.
+```{r}
+# Define a function for fractional counting of IPC codes
+group_by_applnID <- function (data){
+  data %>%
+    group_by(PubNo) %>%
+    mutate(field_weight = 1 / n()) %>%
+    ungroup()
+}
+
+# Define a function to count the relative participation of each IPC code per NACE sector
+group_by_NACE_and_Subclass <- function (data){
+  data %>%
+    group_by(Nace_4d, Subclass) %>%
+    summarise(n_tech_reg = sum(field_weight)) %>%
+    ungroup() %>%
+    drop_na() 
+}  
+
+# Define a function to create a sparse matrix from a data frame
+create_sparse_matrix <- function(i.input, j.input){
+  require(Matrix)
+  mat <- spMatrix(
+    nrow = i.input %>% n_distinct(),
+    ncol = j.input %>% n_distinct(),
+    i = i.input %>% factor() %>% as.numeric(),
+    j = j.input %>% factor() %>% as.numeric(),
+    x = rep(1, i.input %>% length())
+  )
+  
+  row.names(mat) <- i.input %>% factor() %>% levels()
+  colnames(mat) <- j.input %>% factor() %>% levels()
+  return(mat)
+}
+
+# Introduce a new "Artificial_Intelligence" subclass for AI patents
+AI_Patents <- all_patents[all_patents$AIpatent == "Yes", ] 
+AI_Patents_with_code <- distinct_at(AI_Patents, vars(PubNo, Company), .keep_all = T)
+AI_Patents_with_code$Subclass <- "Artificial_Intelligence"
+AI_Patents <- rbind(AI_Patents, AI_Patents_with_code)
+all_patents <- rbind(all_patents, AI_Patents)
+rm(AI_Patents_with_code, AI_Patents)
+
+# Create a square co-occurrence matrix of all IPC codes
+mat_tech <- create_sparse_matrix(i = all_patents %>% pull(PubNo),
+                                 j = all_patents %>% pull(Subclass))
+
+mat_tech %<>% 
+  crossprod() %>% 
+  as.matrix()
+```
+
+This co-occurrence matrix shows how often two IPC codes appear in the same patent. This is a sample of what the matrix looks like:
+```{r}
+kable(as.data.frame(mat_tech[1:10, 1:5]), 
+      caption = "Sample of the Co-occurrence Matrix")
+```
+
+Finally, we calculate the relatedness of every technology to AI using a cosine similarity metric. This metric gives us a measure of technological distance, where a higher value indicates a closer relationship.
+```{r}
+mat_tech %<>% 
+  relatedness(method = "cosine")
+```
+A sample of the resulting relatedness matrix:
+```{r}
+kable(as.data.frame(mat_tech[1:10, 1:5]),
+      caption = "Sample of the Relatedness Matrix")
+```
+This matrix is a critical output of our analysis, saved as "Matrix_relatedness_technologies_to_AI.csv". We can use it to identify which 4-digit IPC codes are most closely related to AI. For example, the ten most related codes are:
+```{r}
+mat_subset_df <- as.data.frame(mat_tech) %>%
+  rownames_to_column(var = "4-digitsIPC")
+mat_subset_df <- as.data.frame(mat_subset_df[, c("4-digitsIPC", "Artificial_Intelligence")])
+top_10_codes <- mat_subset_df %>% arrange(desc(Artificial_Intelligence)) %>% head(10)
+kable(top_10_codes, caption = "Top 10 IPC Codes Most Related to AI")
+```
+## 1.2. Technological distance of NACE sectors to AI
+Now, we shift our focus to measure the technological distance of NACE sectors to AI. We achieve this by first calculating the patent specializations of each NACE sector and then measuring the overlap between these specializations and a pre-defined set of top AI-related technologies.
+```{r}
+rm(mat_tech)
+# Reload original patents without the "Artificial_Intelligence" subclass
+all_patents <- fread("Input_code/Big_files_ignore/All_patents.csv")
+CompaniesData <- read_excel("Input_code/Big_files_ignore/DataCompanies1.xlsx", sheet = "Results", na = "n.a.")
+# Read and combine the company data again for a clean start
+CompaniesData <- rbind(CompaniesData, read_excel("Input_code/Big_files_ignore/DataCompanies2.xlsx", sheet = "Results", na = "n.a."))
+CompaniesData <- rbind(CompaniesData, read_excel("Input_code/Big_files_ignore/DataCompanies3.xlsx", sheet = "Results", na = "n.a."))
+CompaniesData <- rbind(CompaniesData, read_excel("Input_code/Big_files_ignore/DataCompanies4.xlsx", sheet = "Results", na = "n.a."))
+CompaniesData <- rbind(CompaniesData, read_excel("Input_code/Big_files_ignore/DataCompanies5.xlsx", sheet = "Results", na = "n.a."))
+CompaniesData <- rbind(CompaniesData, read_excel("Input_code/Big_files_ignore/DataCompanies6.xlsx", sheet = "Results", na = "n.a."))
+CompaniesData <- CompaniesData[,c(2,3,6)] 
+names(CompaniesData) <- c("Company_name", "Company", "Nace_4d")
+
+all_patents <- left_join(all_patents, CompaniesData, by = "Company")
+all_patents <- all_patents[is.na(all_patents$Nace_4d) == F, ] # Drop companies without Nace codes
+all_patents <- all_patents[, -7] # Exclude company name
+
+# Count total patents per sector and total AI patents for descriptive purposes
+all_patents %<>% group_by(Nace_4d) %>% 
+  mutate(TotalPatents = length(unique(PubNo))) %>% 
+  mutate(TotalAIPatents = length(na.omit(unique(PubNo[AIpatent == "Yes"])))) %>% 
+  mutate(ShareAI = TotalAIPatents / TotalPatents) %>% 
+  ungroup()
+
+# Apply functions to get relative participation of IPC codes per NACE sector
+reg_tech <- group_by_applnID(all_patents) # Fractional counting of IPC codes
+reg_tech <- group_by_NACE_and_Subclass(reg_tech) # Sum of relative participation
+```
+
+Here's a snapshot of the relative participation of each IPC code within each NACE sector:
+```{r}
+kable(head(reg_tech, 5), caption = "Relative Patent Participation per NACE Sector")
+```
+Next, we convert this data into a matrix to calculate the Revealed Comparative Advantage (RCA), which identifies a sector's patent specializations.
+```{r}
+# Reshape data into a matrix format
+mat_reg_tech <- reg_tech %>%
+  arrange(Subclass) %>% 
+  pivot_wider(names_from = Subclass, values_from = n_tech_reg, values_fill = list(n_tech_reg = 0)) 
+
+# Set Nace codes as row names and convert to a matrix
+mat_reg_tech %<>% 
+  remove_rownames() %>% 
+  column_to_rownames(var = "Nace_4d") %>%
+  as.matrix() %>%
+  round() 
+
+# Calculate binary specializations (RCA > 1)
+rel_sectors_codes <- mat_reg_tech %>% 
+  location_quotient(binary = T) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("mat_reg_tech") %>% 
+  as_tibble() %>% 
+  gather(key = "Subclass", value = "RCA", -mat_reg_tech) %>%
+  arrange(mat_reg_tech, Subclass)
+```
+A sample of the binary specialization data:
+```{r}
+kable(head(rel_sectors_codes, 5), caption = "Sample of Patent Specializations (RCA)")
+```
+Now, we read the relatedness matrix created in the previous section and select the top 9 most related AI codes to define our AI cluster.
+```{r}
+# Load the relatedness matrix and select top AI codes
+mat_tech_rel <- read.csv2("Output_code/Data/Matrix_relatedness_technologies_to_AI.csv")
+mat_tech_rel <- mat_tech_rel[, c("X", "Artificial_Intelligence")]
+AI_codes_top9 <- mat_tech_rel[mat_tech_rel$Artificial_Intelligence > .038, 1] 
+
+# The top 9 codes are:
+# G06F: Electric Digital Data Processing
+# G06K: Recognition of Data
+# G06N: Computer Systems Based on Specific Computational Models (Core AI)
+# G06Q: Data Processing for Administrative Purposes
+# G06T: Image Data Processing
+# G10L: Speech Analysis or Synthesis
+# H04L: Transmission of Digital Information
+# G05B: Control or Regulating Systems
+# G16H: Health Informatics
+
+# Count specializations that coincide with these top 9 AI codes
+count_specializations <- function(data, code_list, column_name) {
+  data %>% mutate(
+    !!column_name := case_when(
+      Subclass %in% code_list & RCA == 1 ~ 1,
+      TRUE ~ 0
+    )
+  ) %>%
+    group_by(mat_reg_tech) %>%
+    summarise(!!column_name := sum(!!as.symbol(column_name), na.rm = TRUE), .groups = "drop")
+}
+
+rel_sectors_codes <- rel_sectors_codes %>%
+  left_join(count_specializations(rel_sectors_codes, AI_codes_top9, "AI_specializations_top9"), by = "mat_reg_tech")
+
+names(rel_sectors_codes)[names(rel_sectors_codes) == 'mat_reg_tech'] <- 'Nace_4d'
+
+# Calculate the share of specializations for each NACE sector
+rel_sectors_codes %<>% group_by(Nace_4d) %>% 
+  mutate(number_spec = length(unique(Subclass[RCA == 1]))) %>% 
+  mutate(Share_top9 = AI_specializations_top9 / number_spec) %>% 
+  ungroup()
+
+Unique_sectors <- distinct_at(rel_sectors_codes, vars(Nace_4d), .keep_all = T)
+Unique_sectors <- subset(Unique_sectors, select = -c(Subclass))
+Unique_sectors <- Unique_sectors %>%
+  mutate(across(everything(), ~ ifelse(is.nan(.), 0, .)))
+```  
+Finally, we categorize NACE sectors into quartiles based on their Share_top9 to create a Quartile variable. This categorization allows for a more granular analysis in later sections.
+```{r}
+# Define a function to create quartile variables
+create_quartile_variable <- function(data, share_column, quartile_column_name) {
+  share_column_sym <- sym(share_column)  
+  data %>%
+    mutate(
+      !!quartile_column_name := case_when(
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0, na.rm = TRUE), 
+                quantile(!!share_column_sym, 0.25, na.rm = TRUE)) ~ "Bottom",
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0.25, na.rm = TRUE), 
+                quantile(!!share_column_sym, 0.75, na.rm = TRUE)) ~ "IQR",
+        between(!!share_column_sym, 
+                quantile(!!share_column_sym, 0.75, na.rm = TRUE), 
+                quantile(!!share_column_sym, 1, na.rm = TRUE)) ~ "Top",
+        TRUE ~ NA_character_
+      )
+    )
+}
+
+# Apply the quartile function to our data
+Unique_sectors <- Unique_sectors %>%
+  create_quartile_variable("Share_top9", "Quartile_top9")
+
+# Count the number of sectors in each quartile
+quartile_counts <- table(Unique_sectors$Quartile_top9)
+```
+The resulting Unique_sectors data frame, saved as **"Distance_measure.csv"**, contains the final technological distance measures for each NACE sector. The distribution of sectors across the quartiles is:
+```{r}
+knitr::kable(as.data.frame(quartile_counts), caption = "Number of NACE Sectors per Quartile")
+head(Unique_sectors)
+```
+
+# 2. Measuring effects
+
+In this part, we measure the estimated effects of AI introduction on our matched companies' innovative performance. We use the did package in R to perform DiD estimations for a variety of variables. The analysis is structured to first look at overall effects and then break down the effects across different sectors based on their proximity to AI.
+
+## 2.1. Overall
+
+### 2.1.1. Non-standard - Relatedness and number of patents regardless of sector
+First, let's analyze the overall impact of AI introduction on two main variables: Relatedness (Relatedness_Cos2) and Innovative Performance (NoPatentsYearGUOtotal). The att_gt() function within the did package is used to estimate the group-time average treatment effects (ATT). These effects are then aggregated using aggte() to provide a simple, overall average effect.
+```{r}
+rm(list=ls())
+# Load the matched companies dataset
+DataLong_Subs_sim <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec = ",")
+
+# 1.1.1. Simple Aggregation for Relatedness
+# Estimate group-time average treatment effects (ATT)
+example_attgt <- att_gt(
+  yname = "Relatedness_Cos2", 
+  tname = "CurrentYear", 
+  idname = "id",
+  gname = "first.treat", 
+  xformla = ~1, 
+  data = DataLong_Subs_sim, 
+  alp = .01
+)
+
+# Aggregate ATT into a simple, overall effect
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+The summary() of the aggte() object provides the estimated average treatment effect on the treated (ATT), along with its standard error and confidence interval. The results for relatedness are as follows:
+```{r}
+summary(agg.simple) 
+```
+To understand the dynamic effects of AI introduction over time, we use the aggte() function with type = "dynamic". This creates an event-study plot, showing the effect of the treatment at different periods relative to the first treatment year (event time = 0).
+```{r}
+# 1.1.2. Dynamic Effects and Event Studies
+agg.es <- aggte(example_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es)
+Fig <- ggdid(agg.es, title = "G1) All quartiles - Relatedness") + 
+  theme(legend.position = "right") +
+  ylab("Knowledge-relatedness") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "orange"), labels = c("Pre-treatment", "Post-treatment")) + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+Here's the event study plot for relatedness:
+```{r}
+Fig
+```
+Next, we repeat the same process for innovative performance (NoPatentsYearGUOtotal).
+```{r}
+# Simple Aggregation for Innovative Performance
+example_attgt <- att_gt(
+  yname = "NoPatentsYearGUOtotal", 
+  tname = "CurrentYear", 
+  idname = "id", 
+  gname = "first.treat", 
+  xformla = ~1, 
+  data = DataLong_Subs_sim, 
+  alp = .01
+)
+
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+The overall effects on innovative performance are:
+```{r}
+summary(agg.simple)
+```
+And the dynamic effects plot:
+```{r}
+# Dynamic Effects for Innovative Performance
+agg.es <- aggte(example_attgt, type = "dynamic", na.rm = TRUE)
+summary(agg.es) 
+Fig <- ggdid(agg.es, title = "G2) All quartiles - Innovative performance") + 
+  theme(legend.position = "right") +
+  ylab("Number of patents") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "saddlebrown"), labels = c("Pre-treatment", "Post-treatment")) + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+```{r}
+Fig
+```
+
+#### 2.1.1.1. Moderating effects (Non-standard)
+
+To investigate the moderating effects of **relatedness** on **innovative performance**, we'll use a traditional DiD linear model for a more direct interpretation. First, we establish a baseline model for each of our two main variables without the moderator.
+```{r}
+# Create a binary post-treatment variable
+DataLong_Subs_sim$post_treatment <- ifelse(
+  DataLong_Subs_sim$CurrentYear >= DataLong_Subs_sim$first.treat & 
+  DataLong_Subs_sim$Group <= DataLong_Subs_sim$CurrentYear, 1, 0
+)
+
+# Basic DiD model for relatedness without the moderator
+model <- lm(Relatedness_Cos2 ~ treat * post_treatment, data = DataLong_Subs_sim)
+```
+The results for relatedness are:
+```{r}
+summary(model) 
+```
+Next, we do the same for innovative performance:
+```{r}
+# Basic DiD model for innovative performance without the moderator
+model <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment, data = DataLong_Subs_sim)
+```
+```{r}
+summary(model) 
+```
+Finally, we estimate a model with the interaction term to capture the moderating effect. The core moderating effect is represented by the interaction term treat:post_treatment:Relatedness_Cos2.
+```{r}
+# DiD model with Relatedness_Cos2 as a moderator
+model_moderation <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment * Relatedness_Cos2, data = DataLong_Subs_sim)
+```
+```{r}
+summary(model_moderation)
+```
+
+### 2.1.2. Standardized - Relatedness and number of patents regardless of sector
+
+We now re-estimate the effects for Relatedness_Cos2 and NoPatentsYearGUOtotal after standardizing their values. This process involves scaling the variables to have a mean of zero and a standard deviation of one.
+```{r}
+DataLong_Subs_sim_standard <- DataLong_Subs_sim
+DataLong_Subs_sim_standard[, c("Relatedness_Cos2", "NoPatentsYearGUOtotal")] <- 
+  scale(DataLong_Subs_sim_standard[, c("Relatedness_Cos2", "NoPatentsYearGUOtotal")])
+
+# Simple Aggregation for Relatedness (Standardized)
+example_attgt <- att_gt(
+  yname = "Relatedness_Cos2", 
+  tname = "CurrentYear", 
+  idname = "id", 
+  gname = "first.treat",
+  xformla = ~1, 
+  data = DataLong_Subs_sim_standard, 
+  alp = .01
+)
+
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+The overall treatment effect for standardized Relatedness_Cos2 is:
+```{r}
+summary(agg.simple) 
+```
+Next, we calculate the overall treatment effect for standardized NoPatentsYearGUOtotal.
+```{r}
+# Simple Aggregation for Innovative Performance (Standardized)
+example_attgt <- att_gt(
+  yname = "NoPatentsYearGUOtotal", 
+  tname = "CurrentYear", 
+  idname = "id", 
+  gname = "first.treat",
+  xformla = ~1, 
+  data = DataLong_Subs_sim_standard, 
+  alp = .01
+)
+
+agg.simple <- aggte(example_attgt, type = "simple", na.rm = TRUE)
+```
+The overall treatment effect for standardized NoPatentsYearGUOtotal is:
+```{r}
+summary(agg.simple)
+```
+
+####2.1.2.1. Moderating effects (standardized)
+
+We will now use a standard DiD approach to analyze the moderating effects with the standardized variables.
+```{r}
+# Create the Post-Treatment binary Variable (if not already created)
+DataLong_Subs_sim_standard$post_treatment <- ifelse(
+  DataLong_Subs_sim_standard$CurrentYear >= DataLong_Subs_sim_standard$first.treat & 
+  DataLong_Subs_sim_standard$Group <= DataLong_Subs_sim_standard$CurrentYear, 1, 0
+)
+
+# Basic DiD model for Relatedness (Standardized)
+model <- lm(Relatedness_Cos2 ~ treat * post_treatment, data = DataLong_Subs_sim_standard)
+```
+The results for the standardized DiD model for Relatedness_Cos2 are:
+```{r}
+summary(model)
+```
+Next, we run the basic DiD model for standardized NoPatentsYearGUOtotal.
+```{r}
+# Basic DiD model for Innovative Performance (Standardized)
+model <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment, data = DataLong_Subs_sim_standard)
+```
+The results for the standardized DiD model for NoPatentsYearGUOtotal are:
+```{r}
+summary(model)
+```
+Finally, we estimate the moderating effects of standardized Relatedness_Cos2 on standardized NoPatentsYearGUOtotal. The effect of innovative performance is shown in the treat:post_treatment variable, while the moderating effect of relatedness is shown in the treat:post_treatment:Relatedness_Cos2 variable.
+```{r}
+# DiD model with standardized Relatedness_Cos2 as a moderator
+model_moderation <- lm(NoPatentsYearGUOtotal ~ treat * post_treatment * Relatedness_Cos2, data = DataLong_Subs_sim_standard)
+```
+The results for the standardized moderating effects are:
+```{r}
+summary(model_moderation) 
+```
+Next, we will proceed to section 2.2, where we'll delve deeper into the analysis by measuring the effects across different sectors, providing a more granular understanding of how AI adoption impacts innovation based on technological proximity.
+
+## 2.2. Measuring effects across sectors 
+
+In this section, we expand our analysis to measure the effects of AI introduction across different industry sectors. We first analyze the primary variables of the paper — **Relatedness** and **Innovative Performance** — and then evaluate the estimations for a broader set of variables.
+```{r}
+rm(list = ls())
+
+# Load the main dataset and extra data file
+DataLong_Subs_sim <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec = ",")
+Extra_data <- read.csv("Input_code/Matched_companies_extra_data.csv")
+
+# Merge the extra data for a more complete dataset
+DataLong_Subs_sim <- left_join(DataLong_Subs_sim, Extra_data, by = c("id", "CurrentYear"))
+rm(Extra_data)
+
+# Calculate additional indicators related to subsidiaries and headquarters
+DataLong_Subs_sim$Rate_granted_subs_rel_HQ <- DataLong_Subs_sim$n_granted_yes_subsidiaries / (DataLong_Subs_sim$n_granted_yes_HQ + DataLong_Subs_sim$n_granted_yes_subsidiaries) 
+DataLong_Subs_sim$Rate_success_subs <- DataLong_Subs_sim$n_granted_yes_subsidiaries / (DataLong_Subs_sim$n_granted_na_subsidiaries + DataLong_Subs_sim$n_granted_yes_subsidiaries) 
+DataLong_Subs_sim$Rate_granted_per_sub <- DataLong_Subs_sim$n_granted_yes_subsidiaries / (DataLong_Subs_sim$No_subs_extended) 
+DataLong_Subs_sim$Rate_granted_subs_rel_HQ_TOTAL <- DataLong_Subs_sim$NoPatentsYearALLSubs / (DataLong_Subs_sim$NoPatentsYearALLSubs + DataLong_Subs_sim$NoPatentsYearGUOtotal) 
+DataLong_Subs_sim$Rate_success_HQ <- DataLong_Subs_sim$n_granted_yes_HQ / (DataLong_Subs_sim$n_granted_na_HQ + DataLong_Subs_sim$n_granted_yes_HQ) 
+DataLong_Subs_sim$Patent_productivity <- DataLong_Subs_sim$No_new_PatentsYearGUOalone / DataLong_Subs_sim$RandD_Year
+DataLong_Subs_sim$Patent_output_per_employee <- DataLong_Subs_sim$No_new_PatentsYearGUOalone / DataLong_Subs_sim$number_of_employees
+
+# Replace infinite or NaN values with NA
+DataLong_Subs_sim <- DataLong_Subs_sim %>%
+  mutate(across(
+    c("Rate_success_subs", "Rate_success_HQ", "Patent_productivity", "Patent_output_per_employee"),
+    ~ ifelse(is.nan(.), NA, .)
+  )) %>%
+  mutate(across(
+    c("Patent_productivity", "Patent_output_per_employee", "Rate_granted_per_sub"),
+    ~ ifelse(is.infinite(.), NA, .)
+  ))
+
+# Insert the distance measure calculated in section 1
+CategoriesNace <- read.csv("Output_code/Data/Distance_measure.csv", header = TRUE)
+CategoriesNace <- CategoriesNace[, c("Nace_4d", "Quartile_top9")]
+names(CategoriesNace) <- c("Nace_4d", "Quartile")
+CategoriesNace$Nace_4d <- as.character(CategoriesNace$Nace_4d)
+DataLong_Subs_sim$Nace_4d <- as.character(DataLong_Subs_sim$Nace_4d)
+DataLong_Subs_sim <- left_join(DataLong_Subs_sim, CategoriesNace, by = "Nace_4d")
+
+# Handle any remaining missing quartile values
+DataLong_Subs_sim$Quartile[is.na(DataLong_Subs_sim$Quartile)] <- "Bottom"
+
+# Split data into groups based on quartiles for sectoral analysis
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "Top", ]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "IQR", ]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim[DataLong_Subs_sim$Quartile == "Bottom", ]
+
+# Define a function to calculate confidence intervals and significance
+calculate_ci_and_significance <- function(att, se, group, variable_name) {
+  # Confidence intervals at different significance levels
+  ci_90_low <- att - 1.645 * se
+  ci_90_high <- att + 1.645 * se
+  
+  ci_95_low <- att - 1.96 * se
+  ci_95_high <- att + 1.96 * se
+  
+  ci_99_low <- att - 2.576 * se
+  ci_99_high <- att + 2.576 * se
+  
+  # Determine the highest significance level
+  significance <- ""
+  if (ci_90_low > 0 | ci_90_high < 0) {
+    significance <- "*"
+  }
+  if (ci_95_low > 0 | ci_95_high < 0) {
+    significance <- "**"
+  }
+  if (ci_99_low > 0 | ci_99_high < 0) {
+    significance <- "***"
+  }
+  if (!(ci_90_low > 0 | ci_90_high < 0)) {
+    significance <- ""
+  }
+  
+  # Create a dataframe to store the results
+  results_df <- data.frame(
+    ATT = att,
+    Std_Error = se,
+    CI_90_Low = ci_90_low,
+    CI_90_High = ci_90_high,
+    CI_95_Low = ci_95_low,
+    CI_95_High = ci_95_high,
+    CI_99_Low = ci_99_low,
+    CI_99_High = ci_99_high,
+    Significance = significance,
+    Group = group,
+    Variable = variable_name
+  )
+  
+  return(results_df)
+}
+
+# Define fixed variables for the `did` functions
+tname = "CurrentYear" 
+idname = "id"
+gname = "first.treat"
+
+# Define the groups and variables for analysis
+groups = c("DataLong_Subs_sim_group1", "DataLong_Subs_sim_group2", "DataLong_Subs_sim_group3")
+variables = c(
+  "Relatedness_Cos2", 
+  "NoPatentsYearGUOtotal", 
+  "Specializations_Number", 
+  "UniqueCodes", 
+  "UniqueSubclass", 
+  "Herfindahl",
+  "Shannon",
+  "AIcodes",
+  "No_AI_PatentsYearGUOtotal" 
+)
+
+```
+
+### 2.2.1. Calculate the effects (Non-standardized) for Relatedness and Innovative Performance
+
+We begin by estimating the non-standardized effects on Relatedness (Relatedness_Cos2) for the closest group of companies (Quartile 1 - Top).
+
+#### 2.2.1.1. Relatedness
+
+First, for the top quartile of companies closest to AI.
+```{r}
+variable_n = 1
+n_group = 1
+group = "DataLong_Subs_sim_group1"
+variable_name <- variables[variable_n]
+
+# Estimate ATT for the top quartile
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            
+
+results_df <- calculate_ci_and_significance(att, se, group, variable_name)
+
+# Dynamic events study
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+Fig <- ggdid(agg.es, title = "G3) Q1 - Relatedness") + 
+  theme(legend.position = "right") +
+  ylab("Estimated effect on relatedness") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "steelblue3")) + 
+  labs(color = "Treatment") + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+The overall effect for the top quartile is:
+```{r}
+summary(agg.simple)
+```
+The corresponding event study plot shows the dynamic effects over time:
+```{r}
+Fig
+```
+The confidence intervals and significance level are:
+```{r}
+knitr::kable(results_df)
+```
+Next, for the Interquartile Range (IQR) group.
+```{r}
+n_group = 2
+group = "DataLong_Subs_sim_group2"
+
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            
+
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+Fig <- ggdid(agg.es, title = "G4) IQR - Relatedness") + 
+  theme(legend.position = "right") +
+  ylab("Estimated effect on relatedness") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "green4")) + 
+  labs(color = "Treatment") + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+The overall effect for the IQR is:
+```{r}
+summary(agg.simple)
+```
+And the dynamic effects plot:
+```{r}
+Fig
+```
+The confidence intervals and significance level are:
+```{r}
+knitr::kable(results_df)
+```
+Finally, for the lowest quartile (Q4).
+```{r}
+n_group = 3
+group = "DataLong_Subs_sim_group3"
+
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            
+
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+Fig <- ggdid(agg.es, title = "G5) Q4 - Relatedness") + 
+  theme(legend.position = "right") +
+  ylab("Estimated effect on relatedness") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "red4")) + 
+  labs(color = "Treatment") + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+The overall effect for Q4 is:
+```{r}
+summary(agg.simple)
+```
+And the dynamic effects plot:
+```{r}
+Fig
+```
+The confidence intervals and significance level are:
+```{r}
+knitr::kable(results_df)
+```
+
+#### 2.2.1.2. Innovative performance
+
+We follow the same procedure for Innovative Performance (NoPatentsYearGUOtotal), starting with the closest group (Q1).
+```{r}
+variable_n = 2
+n_group = 1
+group = "DataLong_Subs_sim_group1"
+variable_name <- variables[variable_n]
+
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            
+
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+Fig <- ggdid(agg.es, title = "G6) Q1 - Innovative performance") + 
+  theme(legend.position = "right") +
+  ylab("Estimated effect on number of patents") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "steelblue3")) + 
+  labs(color = "Treatment") + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+The overall effect for the top quartile is:
+```{r}
+summary(agg.simple)
+```
+And the dynamic effects plot:
+```{r}
+Fig
+```
+The confidence intervals and significance level are:
+```{r}
+knitr::kable(results_df)
+```
+For the Interquartile Range (IQR) group:
+```{r}
+n_group = 2
+group = "DataLong_Subs_sim_group2"
+
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            
+
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+Fig <- ggdid(agg.es, title = "G7) IQR - Innovative performance") + 
+  theme(legend.position = "right") +
+  ylab("Estimated effect on number of patents") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "green4")) + 
+  labs(color = "Treatment") + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+The overall effect for the IQR is:
+```{r}
+summary(agg.simple)
+```
+And the dynamic effects plot:
+```{r}
+Fig
+```
+The confidence intervals and significance level are:
+```{r}
+knitr::kable(results_df)
+```
+Finally, for the lowest quartile (Q4):
+```{r}
+n_group = 3
+group = "DataLong_Subs_sim_group3"
+
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            
+
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+agg.es <- aggte(estim_attgt, type = "dynamic", na.rm = TRUE)
+Fig <- ggdid(agg.es, title = "G8) Q4 - Innovative performance") + 
+  theme(legend.position = "right") +
+  ylab("Estimated effect on number of patents") + 
+  xlab("Length of exposure") + 
+  scale_color_manual(values = c("grey70", "red4")) + 
+  labs(color = "Treatment") + 
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black", size = 1, alpha = 0.3)
+```
+The overall effect for Q4 is:
+```{r}
+summary(agg.simple)
+```
+And the dynamic effects plot:
+```{r}
+Fig
+```
+The confidence intervals and significance level are:
+```{r}
+knitr::kable(results_df)
+```
+
+#### 2.2.1.3. Remaining variables
+
+We do the same for the remaining variables, always doing the calculations just by changing the variable_n and the n_group (which goes here from 1 to 3, 1 always being the 1Q, 2 the IQR, and 3 the 4Q), and appending the estimations to the existing **results_df**. As no dynamic effects are considered for the remaining variables, just the overall effects are summarized below.
+```{r, echo=FALSE}
+#### Number of specializations
+#Group 1
+variable_n = 3
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#### Unique Classes
+#Group 1
+variable_n = 4
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#### Unique subclasses
+#Group 1
+variable_n = 5
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#### Herfindahl
+#Group 1
+variable_n = 6
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#### Shannon
+#Group 1
+variable_n = 7
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#### AI codes
+#Group 1
+variable_n = 8
+n_group = 1
+group = print(groups[n_group], quote=FALSE)
+variable_name <- variables[variable_n]
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group1 )
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 2
+n_group = 2
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group2)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+
+#Group 3
+n_group = 3
+group = print(groups[n_group], quote=FALSE)
+#estimate:
+estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                      yname = variables[variable_n], data = DataLong_Subs_sim_group3)
+agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+#pick the estimate values:
+att <- agg.simple$overall.att          
+se <- agg.simple$overall.se            # Standard Error
+#update dataset:
+results_new <- calculate_ci_and_significance(att, se, group, variable_name)
+results_df <- rbind(results_df, results_new)
+```
+The results are:
+```{r}
+knitr::kable(results_df)
+```
+
+## 2.3. Contrasting granted versus non-granted
+
+Now, let's compare the effects of AI adoption for companies that were granted at least one AI patent with those that were not. This section helps to distinguish between the simple act of applying for an AI patent and the actual success of receiving one.
+
+We will focus exclusively on non-standardized values
+
+### 2.3.1. Non-granted AI Patents
+
+In this subsection, we define the treated group as companies that applied for AI patents but never had any granted (i.e., total_granted_ai == 0). The control group consists of companies that did not apply for any AI patents at all (treat == 0). This allows us to isolate the effects of an unsuccessful attempt at AI innovation.
+
+```{r}
+rm(list=ls())
+
+DataLong_Subs_sim <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec = ",")
+Extra_data <- read.csv("Input_code/Matched_companies_extra_data.csv")
+DataLong_Subs_sim <- left_join(DataLong_Subs_sim, Extra_data, by = c("id", "CurrentYear"))
+rm(Extra_data)
+
+# Calculate additional indicators and clean data
+DataLong_Subs_sim$Rate_granted_subs_rel_HQ <- DataLong_Subs_sim$n_granted_yes_subsidiaries/(DataLong_Subs_sim$n_granted_yes_HQ+DataLong_Subs_sim$n_granted_yes_subsidiaries) 
+DataLong_Subs_sim$Rate_success_subs <- DataLong_Subs_sim$n_granted_yes_subsidiaries/(DataLong_Subs_sim$n_granted_na_subsidiaries+DataLong_Subs_sim$n_granted_yes_subsidiaries) 
+DataLong_Subs_sim$Rate_granted_per_sub <- DataLong_Subs_sim$n_granted_yes_subsidiaries/(DataLong_Subs_sim$No_subs_extended) 
+DataLong_Subs_sim$Rate_granted_subs_rel_HQ_TOTAL <- DataLong_Subs_sim$NoPatentsYearALLSubs/(DataLong_Subs_sim$NoPatentsYearALLSubs+DataLong_Subs_sim$NoPatentsYearGUOtotal) 
+DataLong_Subs_sim$Rate_success_HQ <- DataLong_Subs_sim$n_granted_yes_HQ/(DataLong_Subs_sim$n_granted_na_HQ+DataLong_Subs_sim$n_granted_yes_HQ) 
+DataLong_Subs_sim$Patent_productivity <- DataLong_Subs_sim$No_new_PatentsYearGUOalone/DataLong_Subs_sim$RandD_Year
+DataLong_Subs_sim$Patent_output_per_employee <- DataLong_Subs_sim$No_new_PatentsYearGUOalone/DataLong_Subs_sim$number_of_employees
+
+DataLong_Subs_sim <- DataLong_Subs_sim %>%
+  mutate(across(
+    c("Rate_success_subs", "Rate_success_HQ", "Patent_productivity", "Patent_output_per_employee"),
+    ~ ifelse(is.nan(.), NA, .)
+  )) %>%
+  mutate(across(
+    c("Patent_productivity", "Patent_output_per_employee", "Rate_granted_per_sub"),
+    ~ ifelse(is.infinite(.), NA, .)
+  ))
+  
+CategoriesNace <- read.csv("Output_code/Data/Distance_measure.csv", header = TRUE)
+CategoriesNace <- CategoriesNace[,c("Nace_4d", "Quartile_top9")]
+names(CategoriesNace) <- c("Nace_4d", "Quartile")
+CategoriesNace$Nace_4d <- as.character(CategoriesNace$Nace_4d)
+DataLong_Subs_sim$Nace_4d <- as.character(DataLong_Subs_sim$Nace_4d)
+DataLong_Subs_sim <- left_join(DataLong_Subs_sim, CategoriesNace, by = "Nace_4d")
+DataLong_Subs_sim$Quartile[is.na(DataLong_Subs_sim$Quartile)] <- "Bottom"
+DataLong_Subs_sim %<>% group_by(Company) %>% mutate(total_granted_ai = max(n_granted_yes_ai, na.rm =T )) %>% ungroup()
+```
+The starting point is the "DataLong_Subs_sim" file, which now has been extended to include all of the variables we need. This extended file looks like this:
+```{r}
+head(DataLong_Subs_sim)
+```
+This file is used to separate quartiles. As done before, DataLong_Subs_sim_group0 stands for no quartile differentiation (i.e., whole dataset), DataLong_Subs_sim_group1 stands for the 1Q, DataLong_Subs_sim_group2 for the IQR, and DataLong_Subs_sim_group3 for the 4Q. WE start by separating the companies that never got any AI patents approved, separating them into quartiles (plus the group0 with no differentiation).
+```{r}
+# Prepare data for non-granted analysis
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1, ]
+Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0, ]
+
+# New treated group: those who applied but had no AI patents granted
+Current_treated_new_treat <- Current_treated[Current_treated$total_granted_ai == 0, ]
+
+# Combine the new treated group with the original non-treated group
+DataLong_Subs_sim_non_granted <- rbind(Current_treated_new_treat, Current_non_treated)
+
+# Split data into quartiles for analysis
+DataLong_Subs_sim_group0 <- DataLong_Subs_sim_non_granted
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "Top", ]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "IQR", ]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim_non_granted[DataLong_Subs_sim_non_granted$Quartile == "Bottom", ]
+
+# Define DiD variables
+tname = "CurrentYear" 
+idname = "id"
+gname = "first.treat"
+groups = c("DataLong_Subs_sim_group1", "DataLong_Subs_sim_group2", "DataLong_Subs_sim_group3", "DataLong_Subs_sim_group0")
+variables = c(
+  "Relatedness_Cos2", "NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass",
+  "Herfindahl", "Shannon", "AIcodes", "Rate_granted", "avg_claims", "avg_number_of_family_members",
+  "avg_backward_citations", "avg_forward_citations", "avg_time_filing_to_publication", "avg_time_filing_to_grant",
+  "avg_time_publication_to_grant", "n_granted_na", "n_granted_yes", "Rate_success_subs", "Rate_success_HQ",
+  "n_granted_yes_HQ", "n_granted_na_HQ", "avg_time_filing_to_publication_HQ", "avg_time_filing_to_grant_HQ",
+  "avg_time_publication_to_grant_HQ", "n_granted_yes_subsidiaries", "n_granted_na_subsidiaries",
+  "avg_time_filing_to_publication_subsidiaries", "avg_time_filing_to_grant_subsidiaries",
+  "avg_time_publication_to_grant_subsidiaries", "Patent_productivity", "Patent_output_per_employee", "RandD_Year"
+)
+
+calculate_ci_and_significance <- function(att, se, group, variable_name) {
+  # Confidence intervals at different significance levels
+  ci_90_low <- att - 1.645 * se  # 90% confidence interval
+  ci_90_high <- att + 1.645 * se
+  
+  ci_95_low <- att - 1.96 * se   # 95% confidence interval
+  ci_95_high <- att + 1.96 * se
+  
+  ci_99_low <- att - 2.576 * se  # 99% confidence interval
+  ci_99_high <- att + 2.576 * se
+  
+  # Determine the highest significance level
+  significance <- ""
+  
+  if (ci_90_low > 0 | ci_90_high < 0) {
+    significance <- "*"
+  }
+  if (ci_95_low > 0 | ci_95_high < 0) {
+    significance <- "**"
+  }
+  if (ci_99_low > 0 | ci_99_high < 0) {
+    significance <- "***"
+  }
+  if (!(ci_90_low > 0 | ci_90_high < 0)) {
+    significance <- "" # No significance if not significant even at 90%
+  }
+  
+  # Create a dataframe to store the results
+  results_df <- data.frame(
+    ATT = att,
+    Std_Error = se,
+    CI_90_Low = ci_90_low,
+    CI_90_High = ci_90_high,
+    CI_95_Low = ci_95_low,
+    CI_95_High = ci_95_high,
+    CI_99_Low = ci_99_low,
+    CI_99_High = ci_99_high,
+    Significance = significance,
+    Group = group,
+    Variable = variable_name
+  )
+  
+  return(results_df)
+}
+```
+Then, we run the DiD estimations for all key variables across the three quartile groups (Top, IQR, and Bottom) and the entire non-granted dataset. 
+```{r}
+# Loop to calculate non-standardized effects for each variable and group
+results_df <- data.frame()
+for (group_n in 1:3) {
+  for (variable_n in 1:8) { # Main variables
+    group_data <- get(groups[group_n])
+    estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                          yname = variables[variable_n], data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    att <- agg.simple$overall.att
+    se <- agg.simple$overall.se
+    results_new <- calculate_ci_and_significance(att, se, groups[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
+
+# Calculate effects for all variables for the entire dataset (group 0)
+for (variable_n in 9:33) { # All variables
+  estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                        yname = variables[variable_n], data = DataLong_Subs_sim_group0)
+  agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+  att <- agg.simple$overall.att
+  se <- agg.simple$overall.se
+  results_new <- calculate_ci_and_significance(att, se, groups[4], variables[variable_n])
+  results_df <- rbind(results_df, results_new)
+}
+results_df$dataset <- "non_granted"
+results_df$mode <- "non_standard"
+```
+The results are saved to **Table_3_and_Appendix_H_none_granted.xlsx**. They are very similar to the structure we had before, with the difference that now they refer to the "non_granted" dataset (and refer to the non_standard mode). It looks like this:
+```{r}
+head(results_df)
+```
+
+### 2.3.2. Treatment: Granted 1+ AI Patents
+
+Here, we define the treated group as companies that applied for and were granted at least one AI patent (total_granted_ai > 0). The control group remains the same. This analysis captures the impact of successful AI innovation.
+
+```{r}
+# Re-prepare data for granted patents analysis
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1, ]
+Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0, ]
+Current_treated_new_treat <- Current_treated[Current_treated$total_granted_ai > 0, ]
+DataLong_Subs_sim_granted <- rbind(Current_treated_new_treat, Current_non_treated)
+
+# Split data into quartiles
+DataLong_Subs_sim_group0 <- DataLong_Subs_sim_granted
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Top", ]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR", ]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom", ]
+```
+We now run the DiD estimations for all key variables.
+```{r}
+results_df <- data.frame()
+for (group_n in 1:3) {
+  for (variable_n in 1:8) { # Main variables
+    group_data <- get(groups[group_n])
+    estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                          yname = variables[variable_n], data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    att <- agg.simple$overall.att
+    se <- agg.simple$overall.se
+    results_new <- calculate_ci_and_significance(att, se, groups[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
+
+# Calculate effects for all variables for the entire dataset (group 0)
+for (variable_n in 9:33) { # All variables
+  estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                        yname = variables[variable_n], data = DataLong_Subs_sim_group0)
+  agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+  att <- agg.simple$overall.att
+  se <- agg.simple$overall.se
+  results_new <- calculate_ci_and_significance(att, se, groups[4], variables[variable_n])
+  results_df <- rbind(results_df, results_new)
+}
+results_df$dataset <- "granted"
+results_df$mode <- "non_standard"
+```
+The results are saved to **Table_3_and_Appendix_H_granted.xlsx**. They look like this:
+```{r}
+head(results_df)
+```
+
+## 2.4. Treatment with more than 1 granted patents
+
+This section extends the analysis by defining the treated group as companies with a higher number of granted AI patents. This allows for a deeper understanding of whether the effects scale with the degree of successful AI innovation. We will analyze groups with 2+ and 3+ granted AI patents.
+
+###2.4.1. Treatment: Granted 2+ AI Patents
+
+Here, the treated group consists of companies with more than 1 granted AI patent (total_granted_ai > 1). The control group remains unchanged.
+
+```{r}
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1, ]
+Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0, ]
+Current_treated_new_treat <- Current_treated[Current_treated$total_granted_ai > 1, ]
+DataLong_Subs_sim_granted <- rbind(Current_treated_new_treat, Current_non_treated)
+
+DataLong_Subs_sim_group0 <- DataLong_Subs_sim_granted
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Top", ]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR", ]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom", ]
+```
+We now calculate the non-standardized effects for the main variables across the quartile groups.
+```{r}
+results_df <- data.frame()
+for (group_n in 1:3) {
+  for (variable_n in 1:8) { # Main variables
+    group_data <- get(groups[group_n])
+    estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                          yname = variables[variable_n], data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    att <- agg.simple$overall.att
+    se <- agg.simple$overall.se
+    results_new <- calculate_ci_and_significance(att, se, groups[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
+results_df$dataset <- "granted_2patents"
+results_df$mode <- "non_standard"
+```
+The results are saved to **Appendix_H_2plus_granted.xlsx**. They look like this:
+```{r}
+head(results_df)
+```
+
+###2.4.2. Treatment: Granted 3+ AI Patents
+
+This is the most stringent definition of successful AI innovation, with the treated group consisting of companies with more than 2 granted AI patents (total_granted_ai > 2).
+
+```{r}
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1, ]
+Current_non_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 0, ]
+Current_treated_new_treat <- Current_treated[Current_treated$total_granted_ai > 2, ]
+DataLong_Subs_sim_granted <- rbind(Current_treated_new_treat, Current_non_treated)
+
+DataLong_Subs_sim_group0 <- DataLong_Subs_sim_granted
+DataLong_Subs_sim_group1 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Top", ]
+DataLong_Subs_sim_group2 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "IQR", ]
+DataLong_Subs_sim_group3 <- DataLong_Subs_sim_granted[DataLong_Subs_sim_granted$Quartile == "Bottom", ]
+```
+We calculate the non-standardized effects for the main variables.
+```{r}
+results_df <- data.frame()
+for (group_n in 1:3) {
+  for (variable_n in 1:8) {
+    group_data <- get(groups[group_n])
+    estim_attgt <- att_gt(tname = tname, idname = idname, gname = gname, 
+                          yname = variables[variable_n], data = group_data)
+    agg.simple <- aggte(estim_attgt, type = "simple", na.rm = TRUE)
+    att <- agg.simple$overall.att
+    se <- agg.simple$overall.se
+    results_new <- calculate_ci_and_significance(att, se, groups[group_n], variables[variable_n])
+    results_df <- rbind(results_df, results_new)
+  }
+}
+results_df$dataset <- "granted_3patents"
+results_df$mode <- "non_standard"
+```
+The results are saved to **Appendix_H_3plus_granted.xlsx**. They look like this:
+```{r}
+head(results_df)
+```
+
+## 2.5. Contrasting Successful and Unsuccessful AI Innovators
+
+In this final part of the analysis, we perform F-tests and Wilcoxon rank-sum tests to compare the characteristics of successful AI innovators (those with granted AI patents) against unsuccessful ones (those who only applied). This helps to identify any baseline differences between the groups at different points in time relative to the treatment.
+
+```{r}
+Group2 <- read.csv("Output_code/Data/Code_Matching/Matched_Group2_applied_for_but_nonegranted_vs_granted.csv", sep = ";", header = TRUE, dec = ",")
+DataLong_Subs_sim %<>% group_by(Company) %>% mutate(total_granted_ai = max(n_granted_yes_ai, na.rm = T)) %>% ungroup()
+
+Current_treated <- DataLong_Subs_sim[DataLong_Subs_sim$treat == 1, ]
+Current_treated$Year_before_adoption <- as.integer(Current_treated$YearFirstAdoption) - 1
+Current_treated %<>% group_by(Company) %>% mutate(new_treat = ifelse(total_granted_ai == 0, 0, 1)) %>% ungroup()
+Current_treated_matched <- Current_treated[Current_treated$Company %in% Group2$Company, ]
+
+new_variables = c(
+  "Company", "new_treat", "Quartile", "CurrentYear", "YearFirstAdoption", "Year_before_adoption",
+  "Relatedness_Cos2", "NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Herfindahl", "Shannon", "AIcodes",
+  "Rate_granted", "avg_claims", "avg_number_of_family_members", "avg_backward_citations", "avg_forward_citations", "avg_time_filing_to_publication",
+  "avg_time_filing_to_grant", "avg_time_publication_to_grant", "n_granted_na", "n_granted_yes",
+  "Rate_success_subs", "Rate_success_HQ", "n_granted_yes_HQ", "n_granted_na_HQ", "avg_time_filing_to_publication_HQ", "avg_time_filing_to_grant_HQ", 
+  "avg_time_publication_to_grant_HQ", "n_granted_yes_subsidiaries", "n_granted_na_subsidiaries", "avg_time_filing_to_publication_subsidiaries", "avg_time_filing_to_grant_subsidiaries", "avg_time_publication_to_grant_subsidiaries", 
+  "Patent_productivity", "Patent_output_per_employee", "RandD_Year",
+  "Size_class", "Agegroup", "Date_Incorporation", "No_AI_PatentsYearGUOtotal", "No_subs_extended", "operating_revenue_turnover",
+  "number_of_employees", "number_patents_year", "NoPatentsYearGUOalone", "NoPatentsYearALLSubs", "Stock_value", "Market_capitalisation",
+  "total_granted_ai"
+)
+
+reordered_data <- Current_treated_matched %>%
+  select(all_of(new_variables))
+```
+
+###2.5.1. F-tests
+
+We perform F-tests to compare the means of several variables between the successful and unsuccessful groups at different time periods.
+
+```{r}
+reordered_data_Year_tminus1 <- reordered_data %>% filter(Year_before_adoption == CurrentYear)
+tminus1 <- st(reordered_data_Year_tminus1, group = "new_treat", group.test = TRUE,
+              summ = c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t <- reordered_data %>% filter(as.integer(YearFirstAdoption) == CurrentYear)
+t <- st(reordered_data_Year_t, group = "new_treat", group.test = TRUE,
+        summ = c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t_plus1 <- reordered_data %>% filter(as.numeric(YearFirstAdoption) + 1 == CurrentYear)
+t_plus1 <- st(reordered_data_Year_t_plus1, group = "new_treat", group.test = TRUE,
+              summ = c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t_plus2 <- reordered_data %>% filter(as.numeric(YearFirstAdoption) + 2 == CurrentYear)
+t_plus2 <- st(reordered_data_Year_t_plus2, group = "new_treat", group.test = TRUE,
+              summ = c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+reordered_data_Year_t_plus3 <- reordered_data %>% filter(as.numeric(YearFirstAdoption) + 3 == CurrentYear)
+t_plus3 <- st(reordered_data_Year_t_plus3, group = "new_treat", group.test = TRUE,
+            summ = c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+
+```
+These tables are saved as  **Descriptive_statistics_AppendixI_tminus1**, **Descriptive_statistics_AppendixI_t.csv**, **Descriptive_statistics_AppendixI_t_plus1.csv**, **Descriptive_statistics_AppendixI_t_plus2.csv**, and **Descriptive_statistics_AppendixI_t_plus3.csv**. They look like this:
+```{r}
+tminus1[1:20,]
+```
+
+###2.5.2. Wilcoxon Rank-Sum Test
+
+To supplement the F-tests, we perform a Wilcoxon rank-sum test, a non-parametric alternative, to check for significant differences in the distributions of the variables between the two groups. A p-value below 0.05 indicates a significant difference in the distributions.
+
+```{r}
+variables_to_test <- c(
+  "Relatedness_Cos2", "NoPatentsYearGUOtotal", "Specializations_Number", "UniqueCodes", "UniqueSubclass", "Herfindahl", "Shannon", "AIcodes",
+  "Rate_granted", "avg_claims", "avg_number_of_family_members", "avg_backward_citations", "avg_forward_citations", "avg_time_filing_to_publication",
+  "avg_time_filing_to_grant", "avg_time_publication_to_grant", "n_granted_na", "n_granted_yes",
+  "Rate_success_subs", "Rate_success_HQ", "n_granted_yes_HQ", "n_granted_na_HQ", "avg_time_filing_to_publication_HQ", "avg_time_filing_to_grant_HQ", 
+  "avg_time_publication_to_grant_HQ", "n_granted_yes_subsidiaries", "n_granted_na_subsidiaries", "avg_time_filing_to_publication_subsidiaries", "avg_time_filing_to_grant_subsidiaries", "avg_time_publication_to_grant_subsidiaries", 
+  "Patent_productivity", "Patent_output_per_employee", "RandD_Year",
+  #"Size_class", "Agegroup", 
+  "Date_Incorporation", "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal", "No_subs_extended", "operating_revenue_turnover",
+  "number_of_employees", "number_patents_year", "NoPatentsYearGUOalone", "NoPatentsYearALLSubs", "Stock_value", "Market_capitalisation",
+  "total_granted_ai"
+)
+
+wilcox_results_t_minus1 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_tminus1)
+  wilcox_results_t_minus1[[variable]] <- test_result$p.value
+}
+wilcox_results_t_minus1 <- as.data.frame(wilcox_results_t_minus1)
+wilcox_results_t_minus1$Period <- "t-1"
+
+wilcox_results_t <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t)
+  wilcox_results_t[[variable]] <- test_result$p.value
+}
+wilcox_results_t <- as.data.frame(wilcox_results_t)
+wilcox_results_t$Period <- "t"
+
+wilcox_results_t_plus1 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus1)
+  wilcox_results_t_plus1[[variable]] <- test_result$p.value
+}
+wilcox_results_t_plus1 <- as.data.frame(wilcox_results_t_plus1)
+wilcox_results_t_plus1$Period <- "t+1"
+
+wilcox_results_t_plus2 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus2)
+  wilcox_results_t_plus2[[variable]] <- test_result$p.value
+}
+wilcox_results_t_plus2 <- as.data.frame(wilcox_results_t_plus2)
+wilcox_results_t_plus2$Period <- "t+2"
+
+wilcox_results_t_plus3 <- list()
+for (variable in variables_to_test) {
+  test_formula <- as.formula(paste(variable, "~ new_treat"))
+  test_result <- wilcox.test(test_formula, data = reordered_data_Year_t_plus3)
+  wilcox_results_t_plus3[[variable]] <- test_result$p.value
+}
+wilcox_results_t_plus3 <- as.data.frame(wilcox_results_t_plus3)
+wilcox_results_t_plus3$Period <- "t+3"
+
+wilcox <- rbind(wilcox_results_t_minus1, wilcox_results_t, wilcox_results_t_plus1, wilcox_results_t_plus2, wilcox_results_t_plus3)
+```
+The results are saved to **Descriptive_statistics_AppendixI_Wilcox_results.csv**. They look like this:
+```{r}
+head(wilcox)
+```
+
+## 2.6. Visualizing Effects Across Innovation Success Levels
+
+To conclude the analysis, we'll create a plot to visualize the effects of AI innovation for companies with varying levels of success (i.e., no granted patents, 1+ granted, 2+ granted, and 3+ granted). This figure provides a summary of the findings presented in the tables, and is also useful for understanding how the xlsx files are used to create the tables shown in the paper.
+
+```{r}
+rm(list=ls())
+options(scipen=999)
+
+# Load results from the previously saved excel files
+None <- read_excel("Output_code/Data/Table_3_and_Appendix_H_none_granted.xlsx")
+Onegranted <- read_excel("Output_code/Data/Table_3_and_Appendix_H_granted.xlsx")
+Twogranted <- read_excel("Output_code/Data/Appendix_H_2plus_granted.xlsx")
+Threegranted <- read_excel("Output_code/Data/Appendix_H_3plus_granted.xlsx")
+
+# Standardize column names and filter for common variables
+Threegranted <- Threegranted[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+Twogranted <- Twogranted[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+Onegranted <- Onegranted[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+None <- None[,c("ATT", "Std_Error", "Group","Variable", "Significance")]
+
+Onegranted <- Onegranted[Onegranted$Variable %in% Threegranted$Variable,]
+None <- None[None$Variable %in% Threegranted$Variable,]
+
+# Combine the dataframes
+Data <- left_join(None[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  Onegranted[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  by = c("Variable", "Group"), suffix = c(".none", ".one"))
+Data <- left_join(Data, Twogranted[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  by = c("Variable", "Group"), suffix = c(".one", ".two"))
+Data <- left_join(Data, Threegranted[,c("Variable", "Group", "ATT", "Std_Error", "Significance")], 
+                  by = c("Variable", "Group"), suffix = c(".two", ".three"))
+
+# Reshape data for plotting
+df_long <- Data %>%
+  pivot_longer(
+    cols = starts_with("ATT") | starts_with("Std") | starts_with("Significance"),
+    names_to = c(".value", "granted_group"),
+    names_sep = "\\."
+  ) %>%
+  mutate(
+    # Rename variables for plot clarity
+    Variable = case_when(
+      Variable == "Relatedness_Cos2" ~ "Relatedness",
+      Variable == "NoPatentsYearGUOtotal" ~ "Innovative Performance",
+      Variable == "Specializations_Number" ~ "Number of specializations",
+      Variable == "UniqueCodes" ~ "Number of unique IPC Sections used",
+      Variable == "UniqueSubclass" ~ "Number of unique IPC Subclasses used",
+      Variable == "Herfindahl" ~ "Herfindahl index",
+      Variable == "Shannon" ~ "Shannon entropy index",
+      Variable == "AIcodes" ~ "No. of spec. in the 5 techn. most related to AI",
+      TRUE ~ Variable
+    ),
+    # Rename groups for plot clarity
+    Q = case_when(
+      Group == "DataLong_Subs_sim_group1" ~ "Q1",
+      Group == "DataLong_Subs_sim_group2" ~ "IQR",
+      Group == "DataLong_Subs_sim_group3" ~ "Q4",
+      TRUE ~ Group
+    ),
+    # Rename granted groups for plot clarity
+    granted_group = case_when(
+      granted_group == "none" ~ "None granted",
+      granted_group == "one" ~ "Granted 1+",
+      granted_group == "two" ~ "Granted 2+",
+      granted_group == "three" ~ "Granted 3+",
+      TRUE ~ granted_group
+    )
+  ) %>%
+  filter(!is.na(ATT), !is.na(Q)) %>%
+  mutate(
+    Group = factor(granted_group, levels = c("None granted", "Granted 1+", "Granted 2+", "Granted 3+")),
+    Q = factor(Q, levels = c("Q1", "IQR", "Q4")),
+    Variable = factor(Variable, levels = c(
+      "Relatedness", "Innovative Performance", "Number of specializations", "Number of unique IPC Sections used", 
+      "Number of unique IPC Subclasses used", "Herfindahl index", "Shannon entropy index", 
+      "No. of spec. in the 5 techn. most related to AI"
+    ))
+  )
+```
+Here's the visualization of the effects:
+```{r}
+ggplot(df_long, aes(x = Group, y = ATT, fill = Group)) +
+  geom_col(width = 0.7) +
+  geom_errorbar(aes(ymin = ATT - Std_Error, ymax = ATT + Std_Error), width = 0.2) +
+  facet_grid(rows = vars(Variable), cols = vars(Q), scales = "free_y") +
+  labs(y = "Effect (estimate ± SD)", x = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        strip.text.y = element_text(angle = 0))
+```
+
+# 3. Descriptive statistics and correlations
+
+This section provides descriptive statistics and correlation analyses for the datasets used in the study. We first examine the characteristics of all MNEs in the dataset, grouped by their quartile of technological proximity to AI. Then, we focus on the matched sample of companies, comparing the descriptive statistics of treated and control groups. Finally, we visualize the correlations between key variables.
+
+## 3.1. Statistics All data
+
+The following analysis presents a statistical summary of the entire dataset of MNEs, with companies categorized into quartiles based on their technological distance to AI.
+```{r}
+rm(list=ls())
+
+FinalDataset <- read.csv("Input_code/Data_all_MNEs_2019.csv", sep = ";", header = TRUE, dec = ",")
+FinalDataset$Nace_4d <- as.character(FinalDataset$Nace_4d)
+
+CategoriesNace <- read.csv("Output_code/Data/Distance_measure.csv", header = TRUE)
+CategoriesNace$Nace_4d <- as.character(CategoriesNace$Nace_4d)
+
+FinalDataset <- left_join(FinalDataset, CategoriesNace, by = "Nace_4d")
+FinalDataset$Quartile[is.na(FinalDataset$Quartile)] <- "Bottom"
+
+# Select the variables for the summary table
+FinalDataset_summary <- FinalDataset[,c("Relatedness_Cos2", "NoSubs_calculated", "NoSubsWithPatents", "Size_class", 
+                                             "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal", "No_employees_Year",
+                                             "Date_Incorporation",  "Specializations_Number",
+                                             "Herfindahl", "Shannon", "Quartile",
+                                             "UniqueCodes", "UniqueSubclass")]
+```
+The table below shows descriptive statistics for all MNEs, broken down by quartile of proximity to AI.
+```{r}
+st(FinalDataset_summary, group = "Quartile",  group.test = TRUE,
+   summ = c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+```
+This table is saved as **"Descriptive_statistics_all_MNEs_by_Quartile.csv"**
+
+## 3.2. Statistics matched data
+
+This part of the analysis focuses on the subset of companies that were matched for the Difference-in-Differences (DiD) estimation. We compare the descriptive statistics of the treated group (companies that introduced AI) and the control group (companies that did not).
+```{r}
+DataLong_Subs_2006 <- read.csv("Input_code/Matched_companies.csv", sep = ";", header = TRUE, dec = ",")
+
+# Calculate the mean of the last 5 years for a variable
+DataLong_Subs_2006 %<>% group_by(Company, subclass) %>% 
+  mutate(across(NoPatentsYearGUOtotal,
+                .fns = list(avg = ~ zoo::rollmean(., k = 5, fill = NA, align = 'center'))))
+
+# Create lagged variables
+DataLong_Subs_2006 %<>% group_by(Company, subclass) %>% 
+  mutate(NoPatentsYearGUOtotal_avg_fixed = lag(NoPatentsYearGUOtotal_avg)) %>% 
+  mutate(Relatedness_lagged = lag(Relatedness_Cos2)) 
+
+DataLong_Subs_2006 <- subset(DataLong_Subs_2006, select = -c(NoPatentsYearGUOtotal_avg))
+
+# Merge with the full dataset to get Quartile information
+For_Match <- FinalDataset[, c("Company", "CurrentYear", "Quartile", "Specializations_Number", "Shannon", "Herfindahl", "NoSubs_calculated", "NoSubsWithPatents", "No_employees_Year", "UniqueCodes", "UniqueSubclass")]
+DataLong_Subs_2006 <- left_join(DataLong_Subs_2006, For_Match, by = c("Company", "CurrentYear"), na_matches = "never")
+rm(For_Match)
+
+DataLong_Subs_2006 %<>% group_by(Company, subclass) %>% 
+  mutate(N_specializations_lagged = lag(Specializations_Number.x)) 
+
+# Select variables for the summary table
+DataLong_Subs_2006_summary <- DataLong_Subs_2006[,c("Relatedness_Cos2", "Size_class", "NoPatentsYearGUOtotal", "No_AI_PatentsYearGUOtotal",
+                                                    "Company", "treat", "Date_Incorporation", "Group", "CurrentYear", 
+                                                    "NoPatentsYearGUOtotal_avg_fixed", "Nace_4d", "YearFirstAdoption",
+                                                    "Specializations_Number.x", "Shannon.x", "Herfindahl.x", "NoSubs_calculated", "NoSubsWithPatents",
+                                                    "Quartile", "No_employees_Year",
+                                                    "Relatedness_lagged", "N_specializations_lagged", 
+                                                    "UniqueCodes.x", "UniqueSubclass.x" )] 
+
+DataLong_Subs_2006_summary <- DataLong_Subs_2006_summary[DataLong_Subs_2006_summary$Group == DataLong_Subs_2006_summary$CurrentYear, ]
+
+DataLong_Subs_2006_summary <- subset(DataLong_Subs_2006_summary, select = -c(Company, Group, YearFirstAdoption, Nace_4d))
+```
+The table below shows descriptive statistics for the matched treated and control companies.
+```{r}
+st(DataLong_Subs_2006_summary, group = "treat", group.test = TRUE,
+   summ = c('mean(x)','median(x)','sd(x)','min(x)','pctile(x)[25]','pctile(x)[75]','max(x)'), out = 'return')
+```
+This table is saved as **"Descriptive_statistics_matched_companies_Treated.csv"**.
+
+## 3.3. Analyse correlations
+
+Finally, we visualize the correlations between key variables for both the matched sample and the entire dataset. This helps to identify potential relationships and multicollinearity among the variables.
+
+**Matched Sample**
+
+Here is the correlation plot for the matched companies.
+```{r}
+data_normalized <- DataLong_Subs_2006_summary[, c("Relatedness_Cos2", "Specializations_Number.x",
+                                                 "Date_Incorporation", "No_AI_PatentsYearGUOtotal", "NoPatentsYearGUOtotal")] 
+
+names(data_normalized) <- c("Relatedness", "N. of specializations", "Date of incorporation", "N. of AI patents", "N. of patents") 
+data_normalized <- scale(data_normalized)
+corr_matrix <- cor(na.omit(data_normalized))
+
+ggcorrplot(corr_matrix, legend.title = "Correlation", hc.order = F, lab = TRUE)
+```
+**All MNEs**
+
+Here is the correlation plot for the entire dataset, based on the year 2019.
+```{r}
+ggcorrplot(corr_matrix, legend.title = "Correlation", hc.order=F,lab = TRUE)
+```
+
+And now for the whole dataset:
+
+```{r}
+data_normalized <- FinalDataset[, c("Relatedness_Cos2", "Specializations_Number",
+                                   "Date_Incorporation", "No_AI_PatentsYearGUOtotal", "NoPatentsYearGUOtotal")] 
+
+names(data_normalized) <- c("Relatedness", "N. of specializations", "Date of incorporation", "N. of AI patents", "N. of patents") 
+data_normalized <- scale(data_normalized)
+corr_matrix <- cor(na.omit(data_normalized))
+
+ggcorrplot(corr_matrix, legend.title = "Correlation", hc.order = F, lab = TRUE)
+```
